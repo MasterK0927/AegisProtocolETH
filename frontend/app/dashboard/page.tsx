@@ -69,9 +69,7 @@ type UsagePoint = {
   rentals: number;
 };
 
-function buildUsageSeries(
-  events: RentalHistoryEvent[]
-): UsagePoint[] {
+function buildUsageSeries(events: RentalHistoryEvent[]): UsagePoint[] {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -149,24 +147,19 @@ export default function DashboardPage() {
     );
     const monthlyEarningsWei = createdEvents.reduce<bigint>(
       (sum, event) =>
-        event.startedAt >= thirtyDaysAgo
-          ? sum + event.pricePaidWei
-          : sum,
+        event.startedAt >= thirtyDaysAgo ? sum + event.pricePaidWei : sum,
       0n
     );
     const monthlySpentWei = rentedEvents.reduce<bigint>(
       (sum, event) =>
-        event.startedAt >= thirtyDaysAgo
-          ? sum + event.pricePaidWei
-          : sum,
+        event.startedAt >= thirtyDaysAgo ? sum + event.pricePaidWei : sum,
       0n
     );
 
     const totalEarningsEth = Number(formatEther(totalEarningsWei));
     const totalSpentUsd = Number(formatEther(totalSpentWei)) * ETH_TO_USD;
     const monthlyEarningsEth = Number(formatEther(monthlyEarningsWei));
-    const monthlySpentUsd =
-      Number(formatEther(monthlySpentWei)) * ETH_TO_USD;
+    const monthlySpentUsd = Number(formatEther(monthlySpentWei)) * ETH_TO_USD;
 
     return {
       totalAgentsCreated: userAgents.length,
@@ -197,7 +190,9 @@ export default function DashboardPage() {
       return [];
     }
 
-    const agentLookup = new Map(allAgents.map((agent) => [agent.tokenId, agent]));
+    const agentLookup = new Map(
+      allAgents.map((agent) => [agent.tokenId, agent])
+    );
 
     const expenseMap = new Map<
       number,
@@ -223,7 +218,9 @@ export default function DashboardPage() {
           existing.totalDurationSeconds + event.durationSeconds,
         rentalsCount: existing.rentalsCount + 1,
         lastUsed:
-          existing.lastUsed < event.startedAt ? event.startedAt : existing.lastUsed,
+          existing.lastUsed < event.startedAt
+            ? event.startedAt
+            : existing.lastUsed,
       };
 
       expenseMap.set(event.tokenId, updated);
@@ -278,9 +275,7 @@ export default function DashboardPage() {
       0
     );
     const averagePerDay =
-      createdUsageData.length > 0
-        ? totalRentals / createdUsageData.length
-        : 0;
+      createdUsageData.length > 0 ? totalRentals / createdUsageData.length : 0;
     return {
       totalRentals,
       averagePerDay,
@@ -531,7 +526,8 @@ export default function DashboardPage() {
               <div>
                 <CardTitle className="text-lg">Created Agents Usage</CardTitle>
                 <CardDescription>
-                  {createdUsageSummary.totalRentals} rentals in the last {USAGE_WINDOW_DAYS} days
+                  {createdUsageSummary.totalRentals} rentals in the last{" "}
+                  {USAGE_WINDOW_DAYS} days
                 </CardDescription>
               </div>
               <Badge variant="outline">
@@ -547,7 +543,8 @@ export default function DashboardPage() {
               <div>
                 <CardTitle className="text-lg">Rented Agents Usage</CardTitle>
                 <CardDescription>
-                  {rentedUsageSummary.totalRentals} rentals in the last {USAGE_WINDOW_DAYS} days
+                  {rentedUsageSummary.totalRentals} rentals in the last{" "}
+                  {USAGE_WINDOW_DAYS} days
                 </CardDescription>
               </div>
               <Badge variant="outline">

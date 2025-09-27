@@ -159,7 +159,8 @@ export async function fetchRentalHistory(
       const priceRaw = eventArgs[3];
 
       const tokenId = Number(tokenIdRaw ?? 0);
-      const renter = renterRaw != null ? renterRaw.toString().toLowerCase() : "";
+      const renter =
+        renterRaw != null ? renterRaw.toString().toLowerCase() : "";
       const expiresAt = BigInt(expiresAtRaw ?? 0);
       const pricePaidWei = BigInt(priceRaw ?? 0);
 
