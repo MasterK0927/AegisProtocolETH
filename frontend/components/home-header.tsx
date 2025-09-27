@@ -1,16 +1,39 @@
 import Link from "next/link";
 
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-export default function HomeHeader() {
+type HomeHeaderProps = {
+  variant?: "default" | "landing";
+};
+
+export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
   return (
     <>
-      <nav className="fixed inset-x-0 top-0 z-30 flex items-center justify-between px-6 py-4 bg-background/40 backdrop-blur-lg">
-        <Link href="/" className="flex items-center space-x-2">
+      <nav
+        className={cn(
+          "fixed inset-x-0 top-0 z-30 flex items-center justify-between px-6 py-4",
+          variant === "landing"
+            ? "landing-header"
+            : "bg-background/40 backdrop-blur-lg"
+        )}
+      >
+        <Link
+          href="/"
+          className={cn(
+            "flex items-center space-x-2",
+            variant === "landing" && "landing-header__brand"
+          )}
+        >
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
             <span className="text-primary-foreground font-bold text-sm">Æ</span>
           </div>
-          <span className="text-xl font-bold text-foreground">
+          <span
+            className={cn(
+              "text-xl font-bold text-foreground",
+              variant === "landing" && "landing-header__brand-text"
+            )}
+          >
             Aegis Protocol
           </span>
         </Link>
@@ -28,7 +51,11 @@ export default function HomeHeader() {
           >
             Create
           </Link>
-          <Button variant="outline" size="sm">
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(variant === "landing" && "landing-header__cta")}
+          >
             Connect Wallet
           </Button>
         </div>

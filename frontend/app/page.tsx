@@ -1,3 +1,5 @@
+import "./home.css";
+
 import ShaderBackground from "@/components/shader-background";
 import HomeHeader from "@/components/home-header";
 import HomeHero from "@/components/home-hero";
@@ -5,11 +7,11 @@ import HomeHero from "@/components/home-hero";
 export default function HomePage() {
   return (
     <ShaderBackground>
-      <div className="min-h-screen relative overflow-hidden">
-        <div className="absolute inset-0 animated-gradient opacity-20" />
-        <div className="absolute inset-0 bg-gradient-to-br from-background/40 via-background/20 to-background/40" />
+      <div className="home-page relative min-h-screen overflow-hidden">
+        <div className="home-gradient animated-gradient" />
+        <div className="home-gradient-overlay" />
 
-        <HomeHeader />
+        <HomeHeader variant="landing" />
 
         <HomeHero />
       </div>
