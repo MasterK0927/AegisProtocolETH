@@ -1,52 +1,68 @@
-"use client"
+"use client";
 
-import { useState } from "react"
+import { useState } from "react";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Search, ArrowRight, ExternalLink, Info } from "lucide-react"
-import type { AgentData } from "@/app/create/page"
-import { realTools, toolCategories, getToolsByCategory, getRequiredApiKeys } from "@/lib/real-tools"
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Search, ArrowRight, ExternalLink, Info } from "lucide-react";
+import type { AgentData } from "@/app/create/page";
+import {
+  realTools,
+  toolCategories,
+  getToolsByCategory,
+  getRequiredApiKeys,
+} from "@/lib/real-tools";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "@/components/ui/tooltip"
+} from "@/components/ui/tooltip";
 
 interface ToolsStepProps {
-  data: AgentData
-  onUpdate: (updates: Partial<AgentData>) => void
-  onNext: () => void
+  data: AgentData;
+  onUpdate: (updates: Partial<AgentData>) => void;
+  onNext: () => void;
 }
 
 export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
-  const [selectedCategory, setSelectedCategory] = useState("All Tools")
-  const [searchQuery, setSearchQuery] = useState("")
+  const [selectedCategory, setSelectedCategory] = useState("All Tools");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const filteredTools = getToolsByCategory(selectedCategory).filter((tool) => {
-    const matchesSearch = tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         tool.description.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesSearch
-  })
+    const matchesSearch =
+      tool.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      tool.description.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesSearch;
+  });
 
   const handleToolToggle = (toolId: string) => {
     const newTools = data.tools.includes(toolId)
       ? data.tools.filter((t) => t !== toolId)
-      : [...data.tools, toolId]
-    onUpdate({ tools: newTools })
-  }
+      : [...data.tools, toolId];
+    onUpdate({ tools: newTools });
+  };
 
-  const canProceed = data.tools.length > 0
-  const requiredApiKeys = getRequiredApiKeys(data.tools)
+  const canProceed = data.tools.length > 0;
+  const requiredApiKeys = getRequiredApiKeys(data.tools);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Tools enable your agent to perform tasks inside the apps you use daily</CardTitle>
-        <CardDescription>Select the tools and integrations your agent will need</CardDescription>
+        <CardTitle>
+          Tools enable your agent to perform tasks inside the apps you use daily
+        </CardTitle>
+        <CardDescription>
+          Select the tools and integrations your agent will need
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Search */}
@@ -78,18 +94,23 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
         {/* Selected Tools */}
         {data.tools.length > 0 && (
           <div className="space-y-2">
-            <h3 className="font-medium">Selected Tools ({data.tools.length})</h3>
+            <h3 className="font-medium">
+              Selected Tools ({data.tools.length})
+            </h3>
             <div className="flex flex-wrap gap-2">
               {data.tools.map((toolId) => {
-                const tool = realTools.find(t => t.id === toolId)
+                const tool = realTools.find((t) => t.id === toolId);
                 return (
                   <Badge key={toolId} variant="default" className="px-3 py-1">
                     {tool?.name || toolId}
-                    <button onClick={() => handleToolToggle(toolId)} className="ml-2 hover:text-destructive">
+                    <button
+                      onClick={() => handleToolToggle(toolId)}
+                      className="ml-2 hover:text-destructive"
+                    >
                       ×
                     </button>
                   </Badge>
-                )
+                );
               })}
             </div>
           </div>
@@ -97,24 +118,33 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
 
         {/* API Key Requirements */}
         {requiredApiKeys.length > 0 && (
-          <div className="space-y-3 p-4 bg-muted/50 rounded-lg">
+          <div className="space-y-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-blue-500" />
-              <h3 className="font-medium">API Keys Required</h3>
+              <Info className="w-4 h-4 text-blue-600" />
+              <h3 className="font-medium text-blue-800">
+                API Keys Required by Renter
+              </h3>
             </div>
+            <p className="text-sm text-blue-700 mb-3">
+              The person who rents your agent will need to provide API keys for
+              the selected tools. This ensures they pay for their own usage and
+              maintain control over their API costs.
+            </p>
             <div className="space-y-2">
               {requiredApiKeys.map((req) => (
                 <div key={req.provider} className="text-sm">
-                  <span className="font-medium">{req.provider}:</span>{" "}
+                  <span className="font-medium text-blue-800">
+                    {req.provider}:
+                  </span>{" "}
                   <a
                     href={req.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary hover:underline inline-flex items-center gap-1"
+                    className="text-blue-600 hover:underline inline-flex items-center gap-1"
                   >
-                    Get API key <ExternalLink className="w-3 h-3" />
+                    API documentation <ExternalLink className="w-3 h-3" />
                   </a>
-                  <div className="text-xs text-muted-foreground ml-2">
+                  <div className="text-xs text-blue-600 ml-2">
                     Required for: {req.tools.join(", ")}
                   </div>
                 </div>
@@ -131,7 +161,9 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
                 <TooltipTrigger asChild>
                   <Card
                     className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                      data.tools.includes(tool.id) ? "ring-2 ring-primary bg-primary/5" : ""
+                      data.tools.includes(tool.id)
+                        ? "ring-2 ring-primary bg-primary/5"
+                        : ""
                     }`}
                     onClick={() => handleToolToggle(tool.id)}
                   >
@@ -142,18 +174,30 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <h4 className="font-medium text-sm truncate">{tool.name}</h4>
-                            {tool.type === 'api' && (
-                              <Badge variant="outline" className="text-xs">API</Badge>
+                            <h4 className="font-medium text-sm truncate">
+                              {tool.name}
+                            </h4>
+                            {tool.type === "api" && (
+                              <Badge variant="outline" className="text-xs">
+                                API
+                              </Badge>
                             )}
-                            {tool.type === 'mcp' && (
-                              <Badge variant="outline" className="text-xs">MCP</Badge>
+                            {tool.type === "mcp" && (
+                              <Badge variant="outline" className="text-xs">
+                                MCP
+                              </Badge>
                             )}
                           </div>
-                          <p className="text-xs text-muted-foreground mb-1">{tool.category}</p>
-                          <p className="text-xs text-muted-foreground line-clamp-2">{tool.description}</p>
+                          <p className="text-xs text-muted-foreground mb-1">
+                            {tool.category}
+                          </p>
+                          <p className="text-xs text-muted-foreground line-clamp-2">
+                            {tool.description}
+                          </p>
                           {tool.pricing && (
-                            <p className="text-xs text-green-600 mt-1">{tool.pricing}</p>
+                            <p className="text-xs text-green-600 mt-1">
+                              {tool.pricing}
+                            </p>
                           )}
                         </div>
                         {data.tools.includes(tool.id) && (
@@ -171,7 +215,9 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
                       <p className="text-sm text-green-600">{tool.pricing}</p>
                     )}
                     {tool.rateLimit && (
-                      <p className="text-sm text-orange-600">Rate limit: {tool.rateLimit}</p>
+                      <p className="text-sm text-orange-600">
+                        Rate limit: {tool.rateLimit}
+                      </p>
                     )}
                   </div>
                 </TooltipContent>
@@ -188,5 +234,5 @@ export function ToolsStep({ data, onUpdate, onNext }: ToolsStepProps) {
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

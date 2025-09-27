@@ -26,6 +26,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useWeb3 } from "@/hooks/use-web3";
 import { fetchAgent, type AgentData } from "@/lib/agents";
 import { fetchActiveRental, type ActiveRental } from "@/lib/rentals";
+import { ApiKeyModal } from "@/components/api-key-modal";
+import { createLLMService, type LLMMessage } from "@/lib/llm-service";
 
 type Message = {
   id: string;
@@ -63,6 +65,11 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [userIsRenter, setUserIsRenter] = useState(false);
+  const [renterApiKeys, setRenterApiKeys] = useState<Record<
+    string,
+    string
+  > | null>(null);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -196,6 +203,23 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     updateTimeRemaining();
   }, [address, updateTimeRemaining]);
 
+  // Check for stored API keys when user is renter and session is active
+  useEffect(() => {
+    if (userIsRenter && sessionActive && !renterApiKeys) {
+      const storedKeys = sessionStorage.getItem(`agent_${tokenId}_api_keys`);
+      if (storedKeys) {
+        try {
+          setRenterApiKeys(JSON.parse(storedKeys));
+        } catch (e) {
+          console.error("Failed to parse stored API keys:", e);
+          setShowApiKeyModal(true);
+        }
+      } else {
+        setShowApiKeyModal(true);
+      }
+    }
+  }, [userIsRenter, sessionActive, tokenId, renterApiKeys]);
+
   useEffect(() => {
     if (!agent || hasInitializedMessages) {
       return;
@@ -251,10 +275,35 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
       };
     }
 
-    return null;
-  }, [address, rentalLoaded, sessionActive, userIsRenter]);
+    if (!renterApiKeys) {
+      return {
+        tone: "info" as const,
+        message:
+          "API keys required to use this agent. Click to configure your API keys.",
+        action: () => setShowApiKeyModal(true),
+      };
+    }
 
-  const canSendMessages = Boolean(address && sessionActive && userIsRenter);
+    return null;
+  }, [address, rentalLoaded, sessionActive, userIsRenter, renterApiKeys]);
+
+  const canSendMessages = Boolean(
+    address && sessionActive && userIsRenter && renterApiKeys
+  );
+
+  const handleApiKeysSubmitted = (apiKeys: Record<string, string>) => {
+    setRenterApiKeys(apiKeys);
+    sessionStorage.setItem(
+      `agent_${tokenId}_api_keys`,
+      JSON.stringify(apiKeys)
+    );
+    setShowApiKeyModal(false);
+
+    toast({
+      title: "API keys configured",
+      description: "You can now chat with the agent using your API keys.",
+    });
+  };
 
   const handleSendMessage = useCallback(() => {
     if (!agent) {
@@ -275,6 +324,16 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
       return;
     }
 
+    if (!renterApiKeys) {
+      toast({
+        title: "API keys required",
+        description: "Please provide your API keys to use this agent.",
+        variant: "destructive",
+      });
+      setShowApiKeyModal(true);
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       content: inputValue,
@@ -286,19 +345,78 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     setInputValue("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      const agentMessage: Message = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        content: `I'll look into that for you. ${
-          agent.name
-        } specializes in ${agent.category.toLowerCase()} tasks and will provide an update shortly.`,
-        sender: "agent",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, agentMessage]);
-      setIsTyping(false);
-    }, 1500);
-  }, [agent, canSendMessages, inputValue, toast]);
+    // Call LLM with renter's API keys
+    (async () => {
+      try {
+        const llmService = createLLMService(renterApiKeys);
+
+        // Convert chat messages to LLM format
+        const llmMessages: LLMMessage[] = messages
+          .filter((m) => m.sender !== "agent" || m.id !== "intro") // Exclude intro message
+          .map((m) => ({
+            role:
+              m.sender === "user" ? ("user" as const) : ("assistant" as const),
+            content: m.content,
+          }));
+
+        // Add the current user message
+        llmMessages.push({
+          role: "user",
+          content: inputValue,
+        });
+
+        // Get LLM config from agent metadata
+        const llmConfig = agent.metadata?.aegis?.llmConfig;
+        if (!llmConfig?.provider || !llmConfig?.model) {
+          throw new Error("Agent LLM configuration is incomplete");
+        }
+
+        const response = await llmService.callLLM(
+          llmMessages,
+          {
+            provider: llmConfig.provider,
+            model: llmConfig.model,
+            temperature: llmConfig.temperature || 0.7,
+            maxTokens: llmConfig.maxTokens || 2000,
+          },
+          agent
+        );
+
+        const agentMessage: Message = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          content: response.content,
+          sender: "agent",
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, agentMessage]);
+      } catch (error) {
+        console.error("LLM call failed:", error);
+
+        const errorMessage: Message = {
+          id: `${Date.now()}-error`,
+          content: `I apologize, but I encountered an error while processing your request: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }. Please check your API keys and try again.`,
+          sender: "agent",
+          timestamp: new Date(),
+        };
+
+        setMessages((prev) => [...prev, errorMessage]);
+
+        toast({
+          title: "AI Response Error",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Failed to get response from AI",
+          variant: "destructive",
+        });
+      } finally {
+        setIsTyping(false);
+      }
+    })();
+  }, [agent, canSendMessages, inputValue, toast, renterApiKeys, tokenId]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -477,7 +595,14 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
 
       {banner && (
         <div className="px-6 py-3">
-          <div className="bg-amber-500/10 border border-amber-500/40 text-amber-600 px-4 py-3 rounded-lg text-sm">
+          <div
+            className={`px-4 py-3 rounded-lg text-sm border ${
+              banner.tone === "info"
+                ? "bg-blue-500/10 border-blue-500/40 text-blue-600 cursor-pointer hover:bg-blue-500/20"
+                : "bg-amber-500/10 border-amber-500/40 text-amber-600"
+            }`}
+            onClick={banner.action}
+          >
             {banner.message}
           </div>
         </div>
@@ -649,6 +774,15 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
           </div>
         </div>
       </div>
+
+      {agent && (
+        <ApiKeyModal
+          isOpen={showApiKeyModal}
+          onClose={() => setShowApiKeyModal(false)}
+          onSubmit={handleApiKeysSubmitted}
+          agent={agent}
+        />
+      )}
     </div>
   );
 }

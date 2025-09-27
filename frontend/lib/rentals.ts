@@ -6,8 +6,6 @@ import {
   JsonRpcProvider,
   JsonRpcSigner,
   parseEther,
-  type EventLog,
-  type Result,
 } from "ethers";
 
 import { getContractConfig } from "@/lib/contracts";
@@ -35,18 +33,6 @@ type FetchRentalOptions = {
 export type ActiveRental = {
   renter: string;
   expiresAt: bigint;
-};
-
-export type RentalHistoryEvent = {
-  tokenId: number;
-  renter: string;
-  creator: string;
-  pricePaidWei: bigint;
-  expiresAt: bigint;
-  durationSeconds: number;
-  startedAt: Date;
-  transactionHash: string;
-  blockNumber: number;
 };
 
 function resolveProvider(provider?: ProviderLike) {
@@ -106,106 +92,6 @@ export async function fetchActiveRental(
     renter: renter.toLowerCase(),
     expiresAt,
   };
-}
-
-type FetchRentalHistoryOptions = {
-  provider?: ProviderLike;
-  chainId?: number;
-  fromBlock?: bigint;
-  toBlock?: bigint | "latest";
-};
-
-export async function fetchRentalHistory(
-  options?: FetchRentalHistoryOptions
-): Promise<RentalHistoryEvent[]> {
-  const provider = resolveProvider(options?.provider);
-  const network = await provider.getNetwork();
-  const chainId = options?.chainId ?? Number(network.chainId);
-
-  const { address: rentalAddress, abi: rentalAbi } = getContractConfig(
-    chainId,
-    "RentalContract"
-  );
-  const rentalContract = new Contract(rentalAddress, rentalAbi, provider);
-
-  const { address: agentAddress, abi: agentAbi } = getContractConfig(
-    chainId,
-    "AgentNFT"
-  );
-  const agentContract = new Contract(agentAddress, agentAbi, provider);
-
-  const filter = rentalContract.filters.RentalStarted();
-  const events = await rentalContract.queryFilter(
-    filter,
-    options?.fromBlock ?? 0n,
-    options?.toBlock ?? "latest"
-  );
-
-  const blockTimestampCache = new Map<number, number>();
-  const creatorCache = new Map<number, string>();
-
-  const history = await Promise.all(
-    events.map(async (event) => {
-      if (!("args" in event)) {
-        return null;
-      }
-
-      const eventLog = event as EventLog;
-      const eventArgs = eventLog.args as Result;
-
-      const tokenIdRaw = eventArgs[0];
-      const renterRaw = eventArgs[1];
-      const expiresAtRaw = eventArgs[2];
-      const priceRaw = eventArgs[3];
-
-      const tokenId = Number(tokenIdRaw ?? 0);
-      const renter =
-        renterRaw != null ? renterRaw.toString().toLowerCase() : "";
-      const expiresAt = BigInt(expiresAtRaw ?? 0);
-      const pricePaidWei = BigInt(priceRaw ?? 0);
-
-      const blockNumber = eventLog.blockNumber;
-      const cachedTimestamp = blockTimestampCache.get(blockNumber);
-      let blockTimestamp = cachedTimestamp;
-
-      if (blockTimestamp == null) {
-        const block = await provider.getBlock(blockNumber);
-        blockTimestamp = block?.timestamp ?? 0;
-        blockTimestampCache.set(blockNumber, blockTimestamp);
-      }
-
-      const duration = expiresAt - BigInt(blockTimestamp ?? 0);
-      const durationSeconds = duration > 0n ? Number(duration) : 0;
-      const startedAt = new Date((blockTimestamp ?? 0) * 1000);
-
-      let creator = creatorCache.get(tokenId);
-      if (!creator) {
-        try {
-          const owner = await agentContract.ownerOf(tokenId);
-          const normalizedOwner = owner.toString().toLowerCase();
-          creator = normalizedOwner;
-          creatorCache.set(tokenId, normalizedOwner);
-        } catch (error) {
-          console.warn(`Failed to resolve owner for agent ${tokenId}`, error);
-          creator = "";
-        }
-      }
-
-      return {
-        tokenId,
-        renter,
-        creator: creator ?? "",
-        pricePaidWei,
-        expiresAt,
-        durationSeconds,
-        startedAt,
-        transactionHash: eventLog.transactionHash,
-        blockNumber,
-      } satisfies RentalHistoryEvent;
-    })
-  );
-
-  return history.filter((item): item is RentalHistoryEvent => item !== null);
 }
 
 export async function isRentalActive(

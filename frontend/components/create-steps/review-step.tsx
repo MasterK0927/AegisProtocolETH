@@ -68,10 +68,10 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       return;
     }
 
-    if (!data.llmConfig.provider || !data.llmConfig.model || !data.llmConfig.apiKey) {
+    if (!data.llmConfig.provider || !data.llmConfig.model) {
       toast({
         title: "LLM configuration incomplete",
-        description: "Please configure your AI model and provide an API key.",
+        description: "Please configure your AI model selection.",
         variant: "destructive",
       });
       return;
@@ -284,10 +284,10 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
               </p>
             </div>
           </div>
-          <div>
-            <Label className="text-sm font-medium">API Key</Label>
+          <div className="col-span-2">
+            <Label className="text-sm font-medium">API Key Requirement</Label>
             <p className="text-sm text-muted-foreground mt-1">
-              {data.llmConfig.apiKey ? "••••••••••••••••" : "Not provided"}
+              Renter will provide their own API key when using this agent
             </p>
           </div>
         </CardContent>
@@ -335,13 +335,21 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {data.tools.map((toolId) => {
-              const tool = realTools.find(t => t.id === toolId);
+              const tool = realTools.find((t) => t.id === toolId);
               return (
-                <Badge key={toolId} variant="outline" className="flex items-center gap-1">
+                <Badge
+                  key={toolId}
+                  variant="outline"
+                  className="flex items-center gap-1"
+                >
                   <span>{tool?.icon}</span>
                   {tool?.name || toolId}
-                  {tool?.type === 'api' && <span className="text-xs opacity-70">(API)</span>}
-                  {tool?.type === 'mcp' && <span className="text-xs opacity-70">(MCP)</span>}
+                  {tool?.type === "api" && (
+                    <span className="text-xs opacity-70">(API)</span>
+                  )}
+                  {tool?.type === "mcp" && (
+                    <span className="text-xs opacity-70">(MCP)</span>
+                  )}
                 </Badge>
               );
             })}

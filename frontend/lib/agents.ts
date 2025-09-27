@@ -36,6 +36,13 @@ export type AegisMetadata = {
   trending?: unknown;
   usageDelta?: unknown;
   attachments?: unknown;
+  context?: unknown;
+  llmConfig?: {
+    provider?: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+  };
 };
 
 export type AgentMetadata = {

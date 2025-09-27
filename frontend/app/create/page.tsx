@@ -40,7 +40,6 @@ const steps = [
 export interface LLMConfig {
   provider: string;
   model: string;
-  apiKey: string;
   temperature?: number;
   maxTokens?: number;
 }
@@ -73,7 +72,6 @@ export default function CreateAgentPage() {
     llmConfig: {
       provider: "",
       model: "",
-      apiKey: "",
       temperature: 0.7,
       maxTokens: 2000,
     },
@@ -192,11 +190,11 @@ export default function CreateAgentPage() {
                         {currentStep === 1 &&
                           "What job should I handle for you? Be as specific as you'd be with any new hire to set me up for success."}
                         {currentStep === 2 &&
-                          "I need a brain to think with! Choose the AI model that will power my intelligence and provide your API key."}
+                          "I need a brain to think with! Choose the AI model that will power my intelligence. The renter will provide their own API key when using me."}
                         {currentStep === 3 &&
                           "I'm smart, but more context always helps! Help me understand your unique processes and requirements."}
                         {currentStep === 4 &&
-                          "Just like you need the right tools for your job, so do I. Connect me to the apps you use daily so I can perform tasks for you."}
+                          "Just like you need the right tools for your job, so do I. Choose the tools I'll need - renters will provide their own API keys for these services."}
                         {currentStep === 5 &&
                           "Ready to deploy! Let's review everything and get your agent live on the marketplace."}
                       </p>
