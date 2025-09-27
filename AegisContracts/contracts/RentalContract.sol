@@ -12,14 +12,18 @@ contract RentalContract {
     AgentNFT public immutable agentNFT;
     mapping(uint256 => Rental) public activeRentals;
     mapping(uint256 => uint256) public rentalPrices;
+    
+    event RentalStarted(uint256 indexed tokenId, address indexed renter, uint256 expiresAt, uint256 price);
+    event RentalPriceSet(uint256 indexed tokenId, uint256 pricePerSecond);
 
     constructor(address _agentNFTAddress) {
         agentNFT = AgentNFT(_agentNFTAddress);
     }
 
     function setRentalPrice(uint256 tokenId, uint256 pricePerSecond) public {
-        require(agentNFT.ownerOf(tokenId) == msg.sender, "Not the ownwer");
+        require(agentNFT.ownerOf(tokenId) == msg.sender, "Not the owner");
         rentalPrices[tokenId] = pricePerSecond;
+        emit RentalPriceSet(tokenId, pricePerSecond);
     }
 
     function rent(uint256 tokenId, uint256 durationInSeconds) public payable {
@@ -35,6 +39,8 @@ contract RentalContract {
         address creator = agentNFT.ownerOf(tokenId);
         (bool success, ) = payable(creator).call{value: msg.value}("");
         require(success, "Failed to send payment to the creator");
+        
+        emit RentalStarted(tokenId, msg.sender, activeRentals[tokenId].expiresAt, msg.value);
 
     }
 
