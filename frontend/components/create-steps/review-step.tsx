@@ -22,6 +22,7 @@ import { uploadAgentMetadata, type AgentMetadataPayload } from "@/lib/storage";
 import { useWeb3 } from "@/hooks/use-web3";
 import { useToast } from "@/hooks/use-toast";
 import { getContractConfig, SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
+import { realTools } from "@/lib/real-tools";
 
 interface ReviewStepProps {
   data: AgentData;
@@ -67,6 +68,15 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       return;
     }
 
+    if (!data.llmConfig.provider || !data.llmConfig.model || !data.llmConfig.apiKey) {
+      toast({
+        title: "LLM configuration incomplete",
+        description: "Please configure your AI model and provide an API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsDeploying(true);
 
     try {
@@ -100,6 +110,8 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
         attributes: [
           { trait_type: "category", value: data.category },
           { trait_type: "hourlyRate", value: data.hourlyRate },
+          { trait_type: "llmProvider", value: data.llmConfig.provider },
+          { trait_type: "llmModel", value: data.llmConfig.model },
         ],
         aegis: {
           name: data.name,
@@ -111,6 +123,13 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
           context: data.context,
           hourlyRate: data.hourlyRate,
           outputs: data.outputs,
+          llmConfig: {
+            provider: data.llmConfig.provider,
+            model: data.llmConfig.model,
+            // Note: API key is intentionally excluded from metadata for security
+            temperature: data.llmConfig.temperature,
+            maxTokens: data.llmConfig.maxTokens,
+          },
           createdBy: activeAddress,
           createdAt: now,
         },
@@ -233,6 +252,47 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
         </CardContent>
       </Card>
 
+      {/* LLM Configuration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">AI Model Configuration</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-sm font-medium">Provider</Label>
+              <p className="text-sm text-muted-foreground mt-1 capitalize">
+                {data.llmConfig.provider || "Not configured"}
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Model</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                {data.llmConfig.model || "Not selected"}
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Temperature</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                {data.llmConfig.temperature}
+              </p>
+            </div>
+            <div>
+              <Label className="text-sm font-medium">Max Tokens</Label>
+              <p className="text-sm text-muted-foreground mt-1">
+                {data.llmConfig.maxTokens}
+              </p>
+            </div>
+          </div>
+          <div>
+            <Label className="text-sm font-medium">API Key</Label>
+            <p className="text-sm text-muted-foreground mt-1">
+              {data.llmConfig.apiKey ? "••••••••••••••••" : "Not provided"}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Context & Knowledge */}
       <Card>
         <CardHeader>
@@ -274,11 +334,17 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            {data.tools.map((tool) => (
-              <Badge key={tool} variant="outline">
-                {tool}
-              </Badge>
-            ))}
+            {data.tools.map((toolId) => {
+              const tool = realTools.find(t => t.id === toolId);
+              return (
+                <Badge key={toolId} variant="outline" className="flex items-center gap-1">
+                  <span>{tool?.icon}</span>
+                  {tool?.name || toolId}
+                  {tool?.type === 'api' && <span className="text-xs opacity-70">(API)</span>}
+                  {tool?.type === 'mcp' && <span className="text-xs opacity-70">(MCP)</span>}
+                </Badge>
+              );
+            })}
           </div>
         </CardContent>
       </Card>

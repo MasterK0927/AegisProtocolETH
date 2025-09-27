@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import HomeHeader from "@/components/home-header";
 import { DescriptionStep } from "@/components/create-steps/description-step";
+import { LLMStep } from "@/components/create-steps/llm-step";
 import { ContextStep } from "@/components/create-steps/context-step";
 import { ToolsStep } from "@/components/create-steps/tools-step";
 import { ReviewStep } from "@/components/create-steps/review-step";
@@ -20,16 +21,29 @@ const steps = [
   },
   {
     id: 2,
+    title: "Configure AI Model",
+    description: "Select LLM provider and model",
+  },
+  {
+    id: 3,
     title: "What should your agent know?",
     description: "Add context and knowledge",
   },
   {
-    id: 3,
+    id: 4,
     title: "What tools will your agent need?",
     description: "Select capabilities and integrations",
   },
-  { id: 4, title: "Review and deploy", description: "Finalize your agent" },
+  { id: 5, title: "Review and deploy", description: "Finalize your agent" },
 ];
+
+export interface LLMConfig {
+  provider: string;
+  model: string;
+  apiKey: string;
+  temperature?: number;
+  maxTokens?: number;
+}
 
 export interface AgentData {
   name: string;
@@ -41,6 +55,7 @@ export interface AgentData {
   files: File[];
   tools: string[];
   hourlyRate: number;
+  llmConfig: LLMConfig;
 }
 
 export default function CreateAgentPage() {
@@ -55,6 +70,13 @@ export default function CreateAgentPage() {
     files: [],
     tools: [],
     hourlyRate: 0.05,
+    llmConfig: {
+      provider: "",
+      model: "",
+      apiKey: "",
+      temperature: 0.7,
+      maxTokens: 2000,
+    },
   });
 
   const progress = (currentStep / steps.length) * 100;
@@ -87,7 +109,7 @@ export default function CreateAgentPage() {
         );
       case 2:
         return (
-          <ContextStep
+          <LLMStep
             data={agentData}
             onUpdate={updateAgentData}
             onNext={handleNext}
@@ -95,13 +117,21 @@ export default function CreateAgentPage() {
         );
       case 3:
         return (
-          <ToolsStep
+          <ContextStep
             data={agentData}
             onUpdate={updateAgentData}
             onNext={handleNext}
           />
         );
       case 4:
+        return (
+          <ToolsStep
+            data={agentData}
+            onUpdate={updateAgentData}
+            onNext={handleNext}
+          />
+        );
+      case 5:
         return <ReviewStep data={agentData} onUpdate={updateAgentData} />;
       default:
         return null;
@@ -162,10 +192,12 @@ export default function CreateAgentPage() {
                         {currentStep === 1 &&
                           "What job should I handle for you? Be as specific as you'd be with any new hire to set me up for success."}
                         {currentStep === 2 &&
-                          "I'm smart, but more context always helps! Help me understand your unique processes and requirements."}
+                          "I need a brain to think with! Choose the AI model that will power my intelligence and provide your API key."}
                         {currentStep === 3 &&
-                          "Just like you need the right tools for your job, so do I. Connect me to the apps you use daily so I can perform tasks for you."}
+                          "I'm smart, but more context always helps! Help me understand your unique processes and requirements."}
                         {currentStep === 4 &&
+                          "Just like you need the right tools for your job, so do I. Connect me to the apps you use daily so I can perform tasks for you."}
+                        {currentStep === 5 &&
                           "Ready to deploy! Let's review everything and get your agent live on the marketplace."}
                       </p>
                     </div>

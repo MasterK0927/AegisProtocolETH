@@ -23,6 +23,12 @@ export type AgentMetadataPayload = {
     context?: string;
     hourlyRate: number;
     outputs?: string[];
+    llmConfig?: {
+      provider: string;
+      model: string;
+      temperature?: number;
+      maxTokens?: number;
+    };
     createdBy: string;
     createdAt: string;
   };
