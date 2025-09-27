@@ -8,6 +8,25 @@ import { cn } from '@/lib/utils'
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: '', dark: '.dark' } as const
 
+type TooltipValueType = number | string | Array<number | string>
+
+type TooltipPayloadItem = {
+  color?: string
+  dataKey?: string | number
+  name?: string
+  value?: TooltipValueType
+  payload?: Record<string, unknown>
+  [key: string]: unknown
+}
+
+type LegendPayloadItem = {
+  color?: string
+  dataKey?: string | number
+  value?: string
+  payload?: Record<string, unknown>
+  [key: string]: unknown
+}
+
 export type ChartConfig = {
   [k in string]: {
     label?: React.ReactNode
@@ -104,6 +123,31 @@ ${colorConfig
 
 const ChartTooltip = RechartsPrimitive.Tooltip
 
+interface ChartTooltipContentProps
+  extends React.HTMLAttributes<HTMLDivElement> {
+  active?: boolean
+  payload?: TooltipPayloadItem[]
+  indicator?: 'line' | 'dot' | 'dashed'
+  hideLabel?: boolean
+  hideIndicator?: boolean
+  label?: string | number
+  labelFormatter?: (
+    label: string | number | undefined,
+    payload: TooltipPayloadItem[],
+  ) => React.ReactNode
+  labelClassName?: string
+  formatter?: (
+    value: TooltipValueType | undefined,
+    name: string | undefined,
+    item: TooltipPayloadItem,
+    index: number,
+    payload: TooltipPayloadItem['payload'],
+  ) => React.ReactNode
+  color?: string
+  nameKey?: string
+  labelKey?: string
+}
+
 function ChartTooltipContent({
   active,
   payload,
@@ -118,14 +162,8 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey,
-}: React.ComponentProps<typeof RechartsPrimitive.Tooltip> &
-  React.ComponentProps<'div'> & {
-    hideLabel?: boolean
-    hideIndicator?: boolean
-    indicator?: 'line' | 'dot' | 'dashed'
-    nameKey?: string
-    labelKey?: string
-  }) {
+  ...divProps
+}: ChartTooltipContentProps) {
   const { config } = useChart()
 
   const tooltipLabel = React.useMemo(() => {
@@ -142,9 +180,13 @@ function ChartTooltipContent({
         : itemConfig?.label
 
     if (labelFormatter) {
+      const formattedLabel =
+        typeof value === 'string' || typeof value === 'number'
+          ? value
+          : undefined
       return (
         <div className={cn('font-medium', labelClassName)}>
-          {labelFormatter(value, payload)}
+          {labelFormatter(formattedLabel, payload ?? [])}
         </div>
       )
     }
@@ -176,13 +218,19 @@ function ChartTooltipContent({
         'border-border/50 bg-background grid min-w-[8rem] items-start gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs shadow-xl',
         className,
       )}
+      {...divProps}
     >
       {!nestLabel ? tooltipLabel : null}
       <div className="grid gap-1.5">
-        {payload.map((item, index) => {
+  {payload.map((item, index) => {
           const key = `${nameKey || item.name || item.dataKey || 'value'}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
-          const indicatorColor = color || item.payload.fill || item.color
+          const indicatorColor =
+            color ||
+            (typeof item.payload?.fill === 'string'
+              ? (item.payload.fill as string)
+              : undefined) ||
+            item.color
 
           return (
             <div
@@ -250,17 +298,22 @@ function ChartTooltipContent({
 
 const ChartLegend = RechartsPrimitive.Legend
 
+interface ChartLegendContentProps
+  extends React.HTMLAttributes<HTMLDivElement> {
+  payload?: LegendPayloadItem[]
+  verticalAlign?: 'top' | 'bottom' | 'middle'
+  hideIcon?: boolean
+  nameKey?: string
+}
+
 function ChartLegendContent({
   className,
   hideIcon = false,
   payload,
   verticalAlign = 'bottom',
   nameKey,
-}: React.ComponentProps<'div'> &
-  Pick<RechartsPrimitive.LegendProps, 'payload' | 'verticalAlign'> & {
-    hideIcon?: boolean
-    nameKey?: string
-  }) {
+  ...divProps
+}: ChartLegendContentProps) {
   const { config } = useChart()
 
   if (!payload?.length) {
@@ -274,6 +327,7 @@ function ChartLegendContent({
         verticalAlign === 'top' ? 'pb-3' : 'pt-3',
         className,
       )}
+      {...divProps}
     >
       {payload.map((item) => {
         const key = `${nameKey || item.dataKey || 'value'}`

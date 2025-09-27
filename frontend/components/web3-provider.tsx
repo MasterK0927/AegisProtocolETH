@@ -19,6 +19,7 @@ type Web3ContextValue = {
   signer: JsonRpcSigner | null;
   address: string | null;
   chainId: number | null;
+  balance: bigint | null;
   isConnecting: boolean;
   connect: () => Promise<{
     signer: JsonRpcSigner;
@@ -51,6 +52,7 @@ export default function Web3Provider({ children }: Props) {
   const [signer, setSigner] = useState<JsonRpcSigner | null>(null);
   const [address, setAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
+  const [balance, setBalance] = useState<bigint | null>(null);
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
 
   const resetState = useCallback(() => {
@@ -58,6 +60,7 @@ export default function Web3Provider({ children }: Props) {
     setSigner(null);
     setAddress(null);
     setChainId(null);
+    setBalance(null);
     setIsConnecting(false);
   }, []);
 
@@ -81,10 +84,14 @@ export default function Web3Provider({ children }: Props) {
         const currentSigner = await browserProvider.getSigner();
         const network = await browserProvider.getNetwork();
 
+        const account = accounts[0];
+        const currentBalance = await browserProvider.getBalance(account);
+
         setProvider(browserProvider);
         setSigner(currentSigner);
-        setAddress(accounts[0]);
+        setAddress(account);
         setChainId(Number(network.chainId));
+        setBalance(currentBalance);
       } catch (error) {
         console.error("Failed to refresh signer after account change", error);
         resetState();
@@ -113,10 +120,14 @@ export default function Web3Provider({ children }: Props) {
       }
 
       const currentSigner = await browserProvider.getSigner();
+      const account = accounts[0];
+      const currentBalance = await browserProvider.getBalance(account);
+
       setProvider(browserProvider);
       setSigner(currentSigner);
-      setAddress(accounts[0]);
+      setAddress(account);
       setChainId(Number(network.chainId));
+      setBalance(currentBalance);
     } catch (error) {
       console.error("Failed to refresh signer after chain change", error);
       resetState();
@@ -135,6 +146,7 @@ export default function Web3Provider({ children }: Props) {
       await browserProvider.send("eth_requestAccounts", []);
       const currentSigner = await browserProvider.getSigner();
       const currentAddress = await currentSigner.getAddress();
+      const currentBalance = await browserProvider.getBalance(currentAddress);
       const network = await browserProvider.getNetwork();
 
       if (!SUPPORTED_CHAIN_IDS.includes(Number(network.chainId))) {
@@ -145,6 +157,7 @@ export default function Web3Provider({ children }: Props) {
       setSigner(currentSigner);
       setAddress(currentAddress);
       setChainId(Number(network.chainId));
+      setBalance(currentBalance);
 
       return {
         signer: currentSigner,
@@ -230,11 +243,13 @@ export default function Web3Provider({ children }: Props) {
         const currentSigner = await browserProvider.getSigner();
         const currentAddress = await currentSigner.getAddress();
         const network = await browserProvider.getNetwork();
+        const currentBalance = await browserProvider.getBalance(currentAddress);
 
         setProvider(browserProvider);
         setSigner(currentSigner);
         setAddress(currentAddress);
         setChainId(Number(network.chainId));
+        setBalance(currentBalance);
       })
       .catch((error) => {
         console.error("Failed to initialize provider", error);
@@ -264,11 +279,21 @@ export default function Web3Provider({ children }: Props) {
       signer,
       address,
       chainId,
+      balance,
       isConnecting,
       connect,
       disconnect,
     }),
-    [provider, signer, address, chainId, isConnecting, connect, disconnect]
+    [
+      provider,
+      signer,
+      address,
+      chainId,
+      balance,
+      isConnecting,
+      connect,
+      disconnect,
+    ]
   );
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;
