@@ -9,23 +9,30 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { BrowserProvider, JsonRpcSigner } from "ethers";
-import type { Eip1193Provider } from "ethers";
+import { BrowserProvider, type Eip1193Provider, type Signer } from "ethers";
+import type { Chain } from "thirdweb/chains";
+import { createWallet, type Wallet } from "thirdweb/wallets";
+import { wrapFetchWithPayment } from "thirdweb/x402";
 
-import { SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
+import { getBrowserThirdwebClient } from "@/lib/thirdweb/client";
+import { getActiveChain } from "@/lib/thirdweb/chains";
 
 type Web3ContextValue = {
-  provider: BrowserProvider | null;
-  signer: JsonRpcSigner | null;
+  wallet: Wallet | null;
   address: string | null;
+  chain: Chain | null;
   chainId: number | null;
+  signer: Signer | null;
   isConnecting: boolean;
   connect: () => Promise<{
-    signer: JsonRpcSigner;
-    address: string;
-    chainId: number;
+    address: string | null;
+    chainId: number | null;
+    signer: Signer | null;
   }>;
   disconnect: () => Promise<void>;
+  getPaymentFetcher: (
+    maxValueWei?: bigint
+  ) => (input: RequestInfo, init?: RequestInit) => Promise<Response>;
 };
 
 const Web3Context = createContext<Web3ContextValue | undefined>(undefined);
@@ -34,241 +41,190 @@ type Props = {
   children: ReactNode;
 };
 
-declare global {
-  interface Window {
-    ethereum?: Eip1193Provider & {
-      on?: (event: string, handler: (...args: unknown[]) => void) => void;
-      removeListener?: (
-        event: string,
-        handler: (...args: unknown[]) => void
-      ) => void;
-    };
-  }
-}
-
 export default function Web3Provider({ children }: Props) {
-  const [provider, setProvider] = useState<BrowserProvider | null>(null);
-  const [signer, setSigner] = useState<JsonRpcSigner | null>(null);
+  const isBrowser = typeof window !== "undefined";
   const [address, setAddress] = useState<string | null>(null);
+  const [chain, setChain] = useState<Chain | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
-  const [isConnecting, setIsConnecting] = useState<boolean>(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [signer, setSigner] = useState<Signer | null>(null);
+
+  const wallet = useMemo(() => createWallet("io.metamask"), []);
+  const activeChain = useMemo(() => getActiveChain(), []);
+  const thirdwebClient = useMemo(
+    () => (isBrowser ? getBrowserThirdwebClient() : null),
+    [isBrowser]
+  );
+
+  const resolveSigner = useCallback(async (): Promise<Signer | null> => {
+    if (!isBrowser || typeof window === "undefined") {
+      setSigner(null);
+      return null;
+    }
+
+    const ethereumWindow = window as typeof window & {
+      ethereum?: Eip1193Provider;
+    };
+    if (!ethereumWindow.ethereum) {
+      setSigner(null);
+      return null;
+    }
+
+    try {
+      const provider = new BrowserProvider(ethereumWindow.ethereum);
+      const signerInstance = await provider.getSigner();
+      setSigner(signerInstance);
+      return signerInstance;
+    } catch (error) {
+      console.warn("Failed to resolve signer", error);
+      setSigner(null);
+      return null;
+    }
+  }, [isBrowser]);
 
   const resetState = useCallback(() => {
-    setProvider(null);
-    setSigner(null);
     setAddress(null);
+    setChain(null);
     setChainId(null);
+    setSigner(null);
     setIsConnecting(false);
   }, []);
 
-  const handleAccountsChanged = useCallback(
-    async (accountsInput: unknown) => {
-      if (!Array.isArray(accountsInput) || accountsInput.length === 0) {
-        resetState();
-        return;
-      }
+  useEffect(() => {
+    const unsubscribeAccount = wallet.subscribe("accountChanged", (account) => {
+      setAddress(account?.address ?? null);
+      void resolveSigner();
+    });
+    const unsubscribeChain = wallet.subscribe("chainChanged", (nextChain) => {
+      setChain(nextChain ?? null);
+      setChainId(nextChain?.id ?? null);
+      void resolveSigner();
+    });
+    const unsubscribeDisconnect = wallet.subscribe("disconnect", () => {
+      resetState();
+    });
 
-      const accounts = accountsInput.filter(
-        (value): value is string => typeof value === "string"
-      );
-      if (accounts.length === 0) {
-        resetState();
-        return;
-      }
+    return () => {
+      unsubscribeAccount?.();
+      unsubscribeChain?.();
+      unsubscribeDisconnect?.();
+    };
+  }, [wallet, resetState, resolveSigner]);
 
-      try {
-        const browserProvider = new BrowserProvider(window.ethereum!, "any");
-        const currentSigner = await browserProvider.getSigner();
-        const network = await browserProvider.getNetwork();
-
-        setProvider(browserProvider);
-        setSigner(currentSigner);
-        setAddress(accounts[0]);
-        setChainId(Number(network.chainId));
-      } catch (error) {
-        console.error("Failed to refresh signer after account change", error);
-        resetState();
-      }
-    },
-    [resetState]
-  );
-
-  const handleChainChanged = useCallback(async () => {
-    if (!window.ethereum) {
+  useEffect(() => {
+    if (!thirdwebClient) {
       return;
     }
 
-    try {
-      const browserProvider = new BrowserProvider(window.ethereum, "any");
-      const network = await browserProvider.getNetwork();
-      const accounts = await browserProvider.send("eth_accounts", []);
+    wallet
+      .autoConnect({ client: thirdwebClient })
+      .then(async (account) => {
+        setAddress(account.address);
+        const currentChain = wallet.getChain();
+        if (!currentChain || currentChain.id !== activeChain.id) {
+          try {
+            await wallet.switchChain(activeChain);
+            setChain(activeChain);
+            setChainId(activeChain.id);
+          } catch (error) {
+            console.warn("Auto connect chain switch failed", error);
+            setChain(currentChain ?? null);
+            setChainId(currentChain?.id ?? null);
+          }
+        } else {
+          setChain(currentChain);
+          setChainId(currentChain.id);
+        }
 
-      if (!SUPPORTED_CHAIN_IDS.includes(Number(network.chainId))) {
-        console.warn("Connected to unsupported chain", network.chainId);
-      }
-
-      if (accounts.length === 0) {
-        resetState();
-        return;
-      }
-
-      const currentSigner = await browserProvider.getSigner();
-      setProvider(browserProvider);
-      setSigner(currentSigner);
-      setAddress(accounts[0]);
-      setChainId(Number(network.chainId));
-    } catch (error) {
-      console.error("Failed to refresh signer after chain change", error);
-      resetState();
-    }
-  }, [resetState]);
+        await resolveSigner();
+      })
+      .catch(() => {
+        // Silent failure is fine when no previous session exists
+      });
+  }, [wallet, activeChain, thirdwebClient, resolveSigner]);
 
   const connect = useCallback(async () => {
-    if (typeof window === "undefined" || !window.ethereum) {
-      throw new Error("MetaMask is not available in this browser");
+    if (!thirdwebClient) {
+      throw new Error("Wallet connection is only available in the browser");
     }
 
     setIsConnecting(true);
-
     try {
-      const browserProvider = new BrowserProvider(window.ethereum, "any");
-      await browserProvider.send("eth_requestAccounts", []);
-      const currentSigner = await browserProvider.getSigner();
-      const currentAddress = await currentSigner.getAddress();
-      const network = await browserProvider.getNetwork();
+      const account = await wallet.connect({ client: thirdwebClient });
+      setAddress(account.address);
 
-      if (!SUPPORTED_CHAIN_IDS.includes(Number(network.chainId))) {
-        console.warn("Connected to unsupported chain", network.chainId);
+      try {
+        await wallet.switchChain(activeChain);
+        setChain(activeChain);
+        setChainId(activeChain.id);
+      } catch (error) {
+        console.warn("Wallet chain switch failed", error);
+        const fallbackChain = wallet.getChain() ?? null;
+        setChain(fallbackChain);
+        setChainId(fallbackChain?.id ?? null);
       }
 
-      setProvider(browserProvider);
-      setSigner(currentSigner);
-      setAddress(currentAddress);
-      setChainId(Number(network.chainId));
+      const signerInstance = await resolveSigner();
+      const currentChainId = wallet.getChain()?.id ?? null;
 
       return {
-        signer: currentSigner,
-        address: currentAddress,
-        chainId: Number(network.chainId),
+        address: account.address,
+        chainId: currentChainId,
+        signer: signerInstance,
       };
     } finally {
       setIsConnecting(false);
     }
-  }, []);
+  }, [wallet, activeChain, thirdwebClient, resolveSigner]);
 
   const disconnect = useCallback(async () => {
-    if (typeof window === "undefined") {
-      resetState();
-      return;
-    }
+    await wallet.disconnect();
+    resetState();
+  }, [wallet, resetState]);
 
-    const { ethereum } = window;
-
-    if (!ethereum) {
-      resetState();
-      return;
-    }
-
-    const removeListener =
-      typeof ethereum.removeListener === "function"
-        ? ethereum.removeListener.bind(ethereum)
-        : null;
-    const addListener =
-      typeof ethereum.on === "function" ? ethereum.on.bind(ethereum) : null;
-
-    if (removeListener) {
-      removeListener("accountsChanged", handleAccountsChanged);
-      removeListener("chainChanged", handleChainChanged);
-    }
-
-    try {
-      if (typeof ethereum.request === "function") {
-        await ethereum.request({
-          method: "wallet_revokePermissions",
-          params: [{ eth_accounts: {} }],
-        });
+  const getPaymentFetcher = useCallback(
+    (maxValueWei?: bigint) => {
+      if (!thirdwebClient) {
+        throw new Error("Payments unavailable during server-side rendering");
       }
-    } catch (error) {
-      const code =
-        typeof error === "object" && error !== null
-          ? (error as { code?: number }).code
-          : undefined;
 
-      if (code === -32601) {
-        console.info(
-          "wallet_revokePermissions not supported by provider; falling back to local disconnect"
-        );
-      } else {
-        console.error("Failed to revoke wallet permissions", error);
-        throw error instanceof Error
-          ? error
-          : new Error("Failed to disconnect wallet");
+      if (!wallet.getAccount()) {
+        throw new Error("Wallet must be connected to initiate a paid request");
       }
-    } finally {
-      resetState();
 
-      if (addListener) {
-        addListener("accountsChanged", handleAccountsChanged);
-        addListener("chainChanged", handleChainChanged);
-      }
-    }
-  }, [handleAccountsChanged, handleChainChanged, resetState]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.ethereum) {
-      return;
-    }
-
-    const browserProvider = new BrowserProvider(window.ethereum, "any");
-
-    browserProvider
-      .send("eth_accounts", [])
-      .then(async (accounts: string[]) => {
-        if (!accounts || accounts.length === 0) {
-          return;
-        }
-        const currentSigner = await browserProvider.getSigner();
-        const currentAddress = await currentSigner.getAddress();
-        const network = await browserProvider.getNetwork();
-
-        setProvider(browserProvider);
-        setSigner(currentSigner);
-        setAddress(currentAddress);
-        setChainId(Number(network.chainId));
-      })
-      .catch((error) => {
-        console.error("Failed to initialize provider", error);
-      });
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.ethereum) {
-      return;
-    }
-
-    window.ethereum?.on?.("accountsChanged", handleAccountsChanged);
-    window.ethereum?.on?.("chainChanged", handleChainChanged);
-
-    return () => {
-      window.ethereum?.removeListener?.(
-        "accountsChanged",
-        handleAccountsChanged
+      return wrapFetchWithPayment(
+        globalThis.fetch.bind(globalThis),
+        thirdwebClient,
+        wallet,
+        maxValueWei
       );
-      window.ethereum?.removeListener?.("chainChanged", handleChainChanged);
-    };
-  }, [handleAccountsChanged, handleChainChanged]);
+    },
+    [wallet, thirdwebClient]
+  );
 
   const value = useMemo<Web3ContextValue>(
     () => ({
-      provider,
-      signer,
+      wallet,
       address,
+      chain,
       chainId,
+      signer,
       isConnecting,
       connect,
       disconnect,
+      getPaymentFetcher,
     }),
-    [provider, signer, address, chainId, isConnecting, connect, disconnect]
+    [
+      wallet,
+      address,
+      chain,
+      chainId,
+      signer,
+      isConnecting,
+      connect,
+      disconnect,
+      getPaymentFetcher,
+    ]
   );
 
   return <Web3Context.Provider value={value}>{children}</Web3Context.Provider>;

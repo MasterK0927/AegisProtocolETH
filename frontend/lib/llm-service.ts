@@ -263,31 +263,43 @@ export class LLMService {
   }
 
   private buildSystemMessage(agent: AgentData): LLMMessage {
-    const toolsList =
-      agent.tools.length > 0
-        ? `\nAvailable tools: ${agent.tools.join(", ")}`
-        : "";
+    const systemPrompt = agent.systemPrompt?.trim();
+    const baseIntroduction =
+      systemPrompt && systemPrompt.length > 0
+        ? systemPrompt
+        : `You are ${
+            agent.name
+          }, an AI agent focused on ${agent.category.toLowerCase()}.`;
 
-    const capabilitiesList =
-      agent.capabilities.length > 0
-        ? `\nCapabilities: ${agent.capabilities.join(", ")}`
-        : "";
+    const descriptionSection = [agent.shortDescription, agent.description]
+      .filter(Boolean)
+      .map((text) => text.trim())
+      .join("\n\n");
 
-    const contextInfo = agent.metadata?.aegis?.context
-      ? `\nAdditional context: ${agent.metadata.aegis.context}`
+    const capabilitiesSection = agent.capabilities.length
+      ? `Key capabilities:\n- ${agent.capabilities.join("\n- ")}`
       : "";
+
+    const toolsSection = agent.tools.length
+      ? `Available tools:\n- ${agent.tools.join("\n- ")}`
+      : "";
+
+    const settlementReminder =
+      "This session is a pay-per-call interaction settled upfront via thirdweb x402. Deliver concise, high-signal responses that justify the user's spend.";
+
+    const content = [
+      baseIntroduction,
+      descriptionSection,
+      capabilitiesSection,
+      toolsSection,
+      settlementReminder,
+    ]
+      .filter((section) => Boolean(section && section.trim().length))
+      .join("\n\n");
 
     return {
       role: "system",
-      content: `You are ${
-        agent.name
-      }, an AI agent specialized in ${agent.category.toLowerCase()}. 
-
-${agent.description}
-
-${agent.shortDescription}${toolsList}${capabilitiesList}${contextInfo}
-
-You are currently being rented by a user who is paying for this interaction. Be helpful, professional, and make good use of your capabilities to assist them effectively.`,
+      content,
     };
   }
 }

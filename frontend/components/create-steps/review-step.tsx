@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Contract, parseEther } from "ethers";
-import type { Log } from "ethers";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +19,6 @@ import type { AgentData } from "@/app/create/page";
 import { uploadAgentMetadata, type AgentMetadataPayload } from "@/lib/storage";
 import { useWeb3 } from "@/hooks/use-web3";
 import { useToast } from "@/hooks/use-toast";
-import { getContractConfig, SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
 import { realTools } from "@/lib/real-tools";
 
 interface ReviewStepProps {
@@ -33,7 +30,7 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
   const [isDeploying, setIsDeploying] = useState(false);
   const router = useRouter();
   const { toast } = useToast();
-  const { signer, connect, address, chainId } = useWeb3();
+  const { connect, address } = useWeb3();
 
   const handleDeploy = async () => {
     if (isDeploying) {
@@ -80,25 +77,14 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
     setIsDeploying(true);
 
     try {
-      let activeSigner = signer;
       let activeAddress = address;
-      let activeChainId = chainId;
-
-      if (!activeSigner || !activeAddress || activeChainId === null) {
-        const connection = await connect();
-        activeSigner = connection?.signer ?? null;
-        activeAddress = connection?.address ?? null;
-        activeChainId = connection?.chainId ?? null;
-      }
-
-      if (!activeSigner || !activeAddress || activeChainId === null) {
-        throw new Error("Wallet connection is required to deploy your agent.");
-      }
-
-      if (!SUPPORTED_CHAIN_IDS.includes(activeChainId)) {
-        throw new Error(
-          "Please switch to the Hardhat localhost network (chain 31337) and try again."
-        );
+      if (!activeAddress) {
+        try {
+          const connection = await connect();
+          activeAddress = connection?.address ?? null;
+        } catch (connectionError) {
+          console.warn("Wallet connection skipped", connectionError);
+        }
       }
 
       const now = new Date().toISOString();
@@ -130,7 +116,7 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
             temperature: data.llmConfig.temperature,
             maxTokens: data.llmConfig.maxTokens,
           },
-          createdBy: activeAddress,
+          createdBy: activeAddress ?? "anonymous",
           createdAt: now,
         },
       };
@@ -146,69 +132,11 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       );
 
       toast({
-        title: "Minting agent NFT",
-        description: "Please confirm the mint transaction in your wallet.",
+        title: "Agent published",
+        description: "Metadata uploaded successfully to Filecoin.",
       });
 
-      const agentConfig = getContractConfig(activeChainId, "AgentNFT");
-      const agentContract = new Contract(
-        agentConfig.address,
-        agentConfig.abi,
-        activeSigner
-      );
-      const mintTx = await agentContract.mintAgent(uploadResult.uri);
-      const mintReceipt = await mintTx.wait();
-
-      let predictedTokenId: bigint | null = null;
-      for (const logEntry of mintReceipt.logs as ReadonlyArray<Log>) {
-        try {
-          const parsed = agentContract.interface.parseLog(logEntry);
-          if (parsed?.name === "AgentMinted") {
-            predictedTokenId = BigInt(parsed.args[0].toString());
-            break;
-          }
-        } catch {
-          // ignore unrelated logs
-        }
-      }
-
-      if (predictedTokenId === null) {
-        throw new Error(
-          "Mint transaction completed but no AgentMinted event was found."
-        );
-      }
-
-      toast({
-        title: "Setting rental price",
-        description: "Publishing your hourly rate to the marketplace...",
-      });
-
-      const hourlyRateWei = parseEther(data.hourlyRate.toString());
-      const pricePerSecond = hourlyRateWei / 3600n;
-      if (pricePerSecond <= 0n) {
-        throw new Error(
-          "Hourly rate is too low. Increase it slightly and try again."
-        );
-      }
-
-      const rentalConfig = getContractConfig(activeChainId, "RentalContract");
-      const rentalContract = new Contract(
-        rentalConfig.address,
-        rentalConfig.abi,
-        activeSigner
-      );
-      const priceTx = await rentalContract.setRentalPrice(
-        predictedTokenId,
-        pricePerSecond
-      );
-      await priceTx.wait();
-
-      toast({
-        title: "Agent deployed",
-        description: "Your agent is live on the marketplace!",
-      });
-
-      router.push(`/agent/${Number(predictedTokenId)}`);
+      router.push("/marketplace");
     } catch (error) {
       console.error("Agent deployment failed", error);
       toast({

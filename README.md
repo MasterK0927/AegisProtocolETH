@@ -129,7 +129,8 @@ npx hardhat verify --network amoy 0x456... "0x123..."
 npx hardhat verify --network amoy 0x789... "1000000000000000"
 ```
 
-## 🔧 Contract Interaction
+
+## �🔧 Contract Interaction
 
 Use the provided interaction scripts to work with deployed contracts:
 

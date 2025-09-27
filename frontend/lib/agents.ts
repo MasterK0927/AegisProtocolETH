@@ -1,389 +1,270 @@
-"use client";
-
-import {
-  BrowserProvider,
-  Contract,
-  JsonRpcProvider,
-  formatEther,
-} from "ethers";
-import type { EventLog, Result } from "ethers";
-
-import { getContractConfig, type ContractName } from "@/lib/contracts";
-import { getReadOnlyProvider } from "@/lib/providers";
-
-const LIGHTHOUSE_GATEWAY = "https://gateway.lighthouse.storage/ipfs/";
-
 export type AgentUsagePoint = {
   date: string;
   rentals: number;
 };
 
-export type AegisMetadata = {
-  name?: unknown;
-  shortDescription?: unknown;
-  description?: unknown;
-  category?: unknown;
-  avatar?: unknown;
-  creatorName?: unknown;
-  rating?: unknown;
-  reviews?: unknown;
-  totalRentals?: unknown;
-  activeRentals?: unknown;
-  tools?: unknown;
-  capabilities?: unknown;
-  usageData?: AgentUsagePoint[];
-  hourlyRate?: unknown;
-  trending?: unknown;
-  usageDelta?: unknown;
-  attachments?: unknown;
-  context?: unknown;
-  llmConfig?: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  };
+export type AgentPricing = {
+  /** Money-compatible price string passed to x402 settlePayment */
+  priceMoney: string;
+  /** Human readable label shown across the UI */
+  displayLabel: string;
+  /** Optional ceiling for wrapFetchWithPayment (wei encoded as decimal string) */
+  maxPaymentValueWei?: string;
 };
 
-export type AgentMetadata = {
-  name?: string;
-  description?: string;
-  image?: string;
-  creator?: string;
-  attributes?: Array<{ trait_type?: string; value?: unknown }>;
-  aegis?: AegisMetadata;
-  [key: string]: unknown;
+export type AgentCapabilities = {
+  tools: string[];
+  capabilities: string[];
 };
 
-export type AgentAttachment = {
-  name: string;
-  path: string;
-  uri: string;
-  url: string;
-  mimeType?: string;
-  size?: number;
+export type AgentLLMConfig = {
+  provider: string;
+  model: string;
+  temperature?: number;
+  maxTokens?: number;
 };
 
 export type AgentData = {
+  /** Stable identifier surfaced in routing */
   tokenId: number;
-  tokenUri: string;
+  /** URL-safe slug */
+  slug: string;
   name: string;
   shortDescription: string;
   description: string;
   category: string;
   avatar: string;
-  hourlyRateEth: number;
-  pricePerSecondWei: bigint;
-  creator: string;
-  creatorName?: string;
   rating?: number;
   reviews?: number;
-  totalRentals?: number;
-  activeRentals?: number;
-  tools: string[];
-  capabilities: string[];
+  totalSessions?: number;
+  activeSessions?: number;
+  trending?: boolean;
+  usageDelta?: string;
   usageData: AgentUsagePoint[];
-  metadata?: AgentMetadata;
-  attachments: AgentAttachment[];
-};
+  pricing: AgentPricing;
+  llmConfig: AgentLLMConfig;
+  systemPrompt: string;
+} & AgentCapabilities;
 
-type ProviderLike = BrowserProvider | JsonRpcProvider;
-
-type FetchAgentsOptions = {
-  provider?: ProviderLike;
-  chainId?: number;
-};
-
-function resolveProvider(provider?: ProviderLike) {
-  if (provider) {
-    return provider;
-  }
-  return getReadOnlyProvider();
-}
-
-function normalizeUrl(uri: string) {
-  if (uri.startsWith("ipfs://")) {
-    const path = uri.replace("ipfs://", "");
-    return `${LIGHTHOUSE_GATEWAY}${path}`;
-  }
-  return uri;
-}
-
-function getBaseTokenUri(tokenUri: string) {
-  if (!tokenUri) {
-    return tokenUri;
-  }
-
-  const normalized = tokenUri.endsWith("/")
-    ? tokenUri
-    : tokenUri.replace(/metadata\.json$/i, "");
-
-  if (normalized.endsWith("/")) {
-    return normalized;
-  }
-
-  const lastSlash = normalized.lastIndexOf("/");
-  if (lastSlash === -1) {
-    return normalized;
-  }
-
-  return normalized.slice(0, lastSlash + 1);
-}
-
-declare const Buffer:
-  | {
-      from(
-        data: string,
-        encoding: string
-      ): { toString: (encoding: string) => string };
-    }
-  | undefined;
-
-function decodeDataUri(uri: string) {
-  const commaIndex = uri.indexOf(",");
-  const encoded = commaIndex >= 0 ? uri.slice(commaIndex + 1) : uri;
-
-  if (typeof atob === "function") {
-    return atob(encoded);
-  }
-
-  if (Buffer) {
-    return Buffer.from(encoded, "base64").toString("utf8");
-  }
-
-  throw new Error("No base64 decoder available in this environment");
-}
-
-async function loadMetadata(
-  tokenUri: string
-): Promise<AgentMetadata | undefined> {
-  if (!tokenUri) {
-    return undefined;
-  }
-
-  if (tokenUri.startsWith("data:application/json")) {
-    const jsonString = decodeDataUri(tokenUri);
-    return JSON.parse(jsonString);
-  }
-
-  const response = await fetch(normalizeUrl(tokenUri));
-  if (!response.ok) {
-    throw new Error(`Failed to fetch metadata from ${tokenUri}`);
-  }
-  return (await response.json()) as AgentMetadata;
-}
-
-function extractAttribute(metadata: AgentMetadata | undefined, trait: string) {
-  const attributes = metadata?.attributes;
-  if (!Array.isArray(attributes)) {
-    return undefined;
-  }
-
-  const match = attributes.find(
-    (attr) => (attr?.trait_type ?? "").toLowerCase() === trait.toLowerCase()
-  );
-  return match?.value;
-}
-
-function toNumber(value: unknown) {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number.parseFloat(value);
-  return undefined;
-}
-
-function toArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item) => typeof item === "string");
-  }
-  return [];
-}
-
-function toStringValue(value: unknown) {
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value;
-  }
-  return undefined;
-}
-
-function buildAgentData(
-  tokenId: number,
-  creator: string,
-  pricePerSecond: bigint,
-  tokenUri: string,
-  metadata: AgentMetadata | undefined
-): AgentData {
-  const aegis = (metadata?.aegis ?? {}) as AegisMetadata;
-  const defaultName = `Agent #${tokenId}`;
-  const categoryFromAttributes = extractAttribute(metadata, "category");
-  const totalRentalsFromAttributes = extractAttribute(metadata, "totalRentals");
-  const activeRentalsFromAttributes = extractAttribute(
-    metadata,
-    "activeRentals"
-  );
-  const ratingAttr = extractAttribute(metadata, "rating");
-  const reviewsAttr = extractAttribute(metadata, "reviews");
-
-  const pricePerHourEth =
-    pricePerSecond > 0n
-      ? Number.parseFloat(formatEther(pricePerSecond * 3600n))
-      : toNumber(aegis.hourlyRate) ?? 0;
-
-  const name = toStringValue(aegis.name) ?? metadata?.name ?? defaultName;
-  const shortDescription =
-    toStringValue(aegis.shortDescription) ?? metadata?.description ?? "";
-  const longDescription =
-    toStringValue(aegis.description) ?? metadata?.description ?? "";
-  const category =
-    toStringValue(aegis.category) ??
-    toStringValue(categoryFromAttributes) ??
-    "General";
-  let avatar = toStringValue(aegis.avatar) ?? metadata?.image;
-  const creatorName = toStringValue(aegis.creatorName) ?? metadata?.creator;
-  const totalRentalsValue = toNumber(
-    aegis.totalRentals ?? totalRentalsFromAttributes
-  );
-  const activeRentalsValue = toNumber(
-    aegis.activeRentals ?? activeRentalsFromAttributes
-  );
-
-  const attachmentsRaw = Array.isArray(aegis.attachments)
-    ? (aegis.attachments as Array<Record<string, unknown>>)
-    : [];
-  const baseUri = getBaseTokenUri(tokenUri);
-  const attachments = attachmentsRaw.reduce<AgentAttachment[]>(
-    (collection, attachment) => {
-      const path = toStringValue(attachment.path ?? attachment.uri);
-      if (!path) {
-        return collection;
-      }
-
-      const name =
-        toStringValue(attachment.name) ?? path.split("/").pop() ?? "Attachment";
-      const mimeType = toStringValue(attachment.mimeType ?? attachment.type);
-      const sizeValue = toNumber(attachment.size);
-      const attachmentUri = baseUri ? `${baseUri}${path}` : path;
-
-      collection.push({
-        name,
-        path,
-        uri: attachmentUri,
-        url: normalizeUrl(attachmentUri),
-        mimeType,
-        size: sizeValue,
-      });
-
-      return collection;
-    },
-    []
-  );
-
-  if (!avatar) {
-    const imageAttachment = attachments.find((attachment) =>
-      attachment.mimeType?.startsWith("image/")
-    );
-    avatar = imageAttachment?.url;
-  }
-
-  avatar ??= "🤖";
-
-  return {
-    tokenId,
-    tokenUri,
-    name,
-    shortDescription,
-    description: longDescription,
-    category,
-    avatar,
-    hourlyRateEth: pricePerHourEth,
-    pricePerSecondWei: pricePerSecond,
-    creator,
-    creatorName,
-    rating: toNumber(aegis.rating ?? ratingAttr),
-    reviews: toNumber(aegis.reviews ?? reviewsAttr),
-    totalRentals: totalRentalsValue,
-    activeRentals: activeRentalsValue,
-    tools: toArray(aegis.tools),
-    capabilities: toArray(aegis.capabilities),
-    usageData: Array.isArray(aegis.usageData) ? aegis.usageData : [],
-    metadata,
-    attachments,
+type AgentRecord = AgentData & {
+  metadata?: {
+    context?: string;
   };
+};
+
+const TODAY = new Date();
+
+function daysAgo(days: number) {
+  const date = new Date(TODAY);
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
 }
 
-async function getContract(
-  chainId: number,
-  name: ContractName,
-  provider: ProviderLike
-) {
-  const { address, abi } = getContractConfig(chainId, name);
-  return new Contract(address, abi, provider);
+function usageSeries(seed: number): AgentUsagePoint[] {
+  return Array.from({ length: 7 }, (_, index) => {
+    const fluctuation = Math.sin((seed + index) * 1.3) * 4;
+    const rentals = Math.max(1, Math.round(seed * 6 + fluctuation));
+    return {
+      date: daysAgo(6 - index),
+      rentals,
+    };
+  });
 }
 
-export async function fetchAgents(
-  options?: FetchAgentsOptions
-): Promise<AgentData[]> {
-  const provider = resolveProvider(options?.provider);
-  const network = await provider.getNetwork();
-  const chainId = options?.chainId ?? Number(network.chainId);
+const AGENT_CATALOG: AgentRecord[] = [
+  {
+    tokenId: 1,
+    slug: "growth-analyst",
+    name: "Growth Analyst AI",
+    shortDescription:
+      "Diagnoses funnel friction and recommends next growth moves.",
+    description:
+      "Growth Analyst AI ingests performance dashboards, campaign data, and qualitative feedback to surface the exact bottlenecks slowing your product adoption.",
+    category: "Analytics",
+    avatar: "📈",
+    rating: 4.8,
+    reviews: 128,
+    totalSessions: 2680,
+    activeSessions: 14,
+    trending: true,
+    usageDelta: "+18%",
+    tools: ["Google Analytics API", "Mixpanel API", "Airtable API"],
+    capabilities: [
+      "Attribution analysis",
+      "Activation drop-off clustering",
+      "Cohort health monitoring",
+      "Growth experiment design",
+    ],
+    usageData: usageSeries(4.2),
+    pricing: {
+      priceMoney: "$0.08",
+      displayLabel: "≈0.16 MATIC per request",
+      maxPaymentValueWei: "320000000000000000",
+    },
+    llmConfig: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      temperature: 0.6,
+      maxTokens: 1400,
+    },
+    systemPrompt:
+      "You are Growth Analyst AI, an analytics partner who pinpoints growth opportunities, analyses funnel metrics, and recommends experiments grounded in product usage data.",
+    metadata: {
+      context:
+        "You have access to anonymized funnel metrics, survey snippets, and marketing performance benchmarks across SaaS companies between Seed and Series C stages.",
+    },
+  },
+  {
+    tokenId: 2,
+    slug: "go-to-market-strategist",
+    name: "Go-To-Market Strategist",
+    shortDescription:
+      "Builds positioning, messaging, and launch plans in minutes.",
+    description:
+      "The Go-To-Market Strategist agent blends competitive intelligence with persona research to deliver ready-to-ship launch kits for revenue teams.",
+    category: "Marketing",
+    avatar: "🚀",
+    rating: 4.9,
+    reviews: 97,
+    totalSessions: 1984,
+    activeSessions: 9,
+    trending: true,
+    usageDelta: "+24%",
+    tools: ["Web Scraper", "LinkedIn API", "Notion API"],
+    capabilities: [
+      "Persona narrative creation",
+      "Competitor teardown",
+      "Messaging matrix synthesis",
+      "Launch playbook drafting",
+    ],
+    usageData: usageSeries(3.6),
+    pricing: {
+      priceMoney: "$0.06",
+      displayLabel: "≈0.12 MATIC per request",
+      maxPaymentValueWei: "240000000000000000",
+    },
+    llmConfig: {
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      temperature: 0.7,
+      maxTokens: 1600,
+    },
+    systemPrompt:
+      "You are a launch-focused strategist who synthesizes qualitative research, competitor intel, and CRM excerpts to craft crisp positioning for B2B SaaS teams.",
+    metadata: {
+      context:
+        "Persona templates cover HR tech, PLG productivity suites, and developer tooling. Competitor data refreshed weekly from public sources.",
+    },
+  },
+  {
+    tokenId: 3,
+    slug: "sales-researcher",
+    name: "Enterprise Sales Researcher",
+    shortDescription:
+      "Preps tailored call briefs with live account intelligence.",
+    description:
+      "Enterprise Sales Researcher scans earnings calls, 10-K filings, and leadership interviews to arm reps with the intel they need to win the next meeting.",
+    category: "Sales",
+    avatar: "🕵️",
+    rating: 4.7,
+    reviews: 84,
+    totalSessions: 1540,
+    activeSessions: 11,
+    trending: false,
+    usageDelta: "+9%",
+    tools: ["Web Scraper", "Google Search API", "LinkedIn API"],
+    capabilities: [
+      "Executive persona briefing",
+      "Recent initiative summary",
+      "Buying committee map",
+      "Discovery question drafting",
+    ],
+    usageData: usageSeries(3.2),
+    pricing: {
+      priceMoney: "$0.07",
+      displayLabel: "≈0.14 MATIC per request",
+      maxPaymentValueWei: "280000000000000000",
+    },
+    llmConfig: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      temperature: 0.55,
+      maxTokens: 1200,
+    },
+    systemPrompt:
+      "You are an enterprise sales desk researcher who assembles actionable account dossiers, highlighting stakeholder priorities and timely conversation hooks.",
+    metadata: {
+      context:
+        "Data sources include SEC filings, investor letters, job postings, and curated industry newsletters across software, fintech, and manufacturing.",
+    },
+  },
+  {
+    tokenId: 4,
+    slug: "risk-compliance-advisor",
+    name: "Risk & Compliance Advisor",
+    shortDescription:
+      "Summarizes policy updates and maps them to control owners.",
+    description:
+      "Risk & Compliance Advisor parses regulatory releases, SOC findings, and vendor questionnaires to deliver concise compliance updates for ops teams.",
+    category: "Operations",
+    avatar: "🛡️",
+    rating: 4.6,
+    reviews: 61,
+    totalSessions: 1120,
+    activeSessions: 7,
+    trending: false,
+    usageDelta: "+6%",
+    tools: ["PDF Text Extractor", "Notion API", "Google Drive API"],
+    capabilities: [
+      "Control coverage analysis",
+      "Regulation change briefing",
+      "Risk register drafting",
+      "Control owner reminders",
+    ],
+    usageData: usageSeries(2.8),
+    pricing: {
+      priceMoney: "$0.05",
+      displayLabel: "≈0.10 MATIC per request",
+      maxPaymentValueWei: "220000000000000000",
+    },
+    llmConfig: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      temperature: 0.4,
+      maxTokens: 1000,
+    },
+    systemPrompt:
+      "You digest compliance evidence, highlight risks that need attention, and propose next steps mapped to owners and audit requirements.",
+    metadata: {
+      context:
+        "You have policy excerpts from SOC 2 Type II audits, ISO 27001 mappings, and quarterly regulatory watchlists for fintech and healthcare.",
+    },
+  },
+];
 
-  const agentContract = await getContract(chainId, "AgentNFT", provider);
-  const rentalContract = await getContract(chainId, "RentalContract", provider);
-
-  const eventFilter = agentContract.filters.AgentMinted();
-  const events = await agentContract.queryFilter(eventFilter, 0n, "latest");
-
-  const agents = await Promise.all(
-    events.map(async (event) => {
-      if (!("args" in event)) {
-        return null;
-      }
-
-      const eventLog = event as EventLog;
-      const eventArgs = eventLog.args as Result;
-      const tokenIdRaw = eventArgs[0];
-      const creatorRaw = eventArgs[1];
-
-      const tokenId = Number(tokenIdRaw ?? 0);
-      const creator = creatorRaw != null ? creatorRaw.toString() : "";
-      const tokenUri = await agentContract.tokenURI(tokenId);
-      const metadata = await loadMetadata(tokenUri);
-      const pricePerSecond: bigint = await rentalContract.rentalPrices(tokenId);
-
-      return buildAgentData(
-        tokenId,
-        creator,
-        pricePerSecond,
-        tokenUri,
-        metadata
-      );
-    })
-  );
-
-  return agents
-    .filter((agent): agent is AgentData => agent !== null)
-    .sort((a, b) => a.tokenId - b.tokenId);
-}
-
-export async function fetchAgent(
-  tokenId: number,
-  options?: FetchAgentsOptions
-): Promise<AgentData | null> {
-  const provider = resolveProvider(options?.provider);
-  const network = await provider.getNetwork();
-  const chainId = options?.chainId ?? Number(network.chainId);
-
-  const agentContract = await getContract(chainId, "AgentNFT", provider);
-  const rentalContract = await getContract(chainId, "RentalContract", provider);
-
-  try {
-    const tokenUri = await agentContract.tokenURI(tokenId);
-    const metadata = await loadMetadata(tokenUri);
-    const pricePerSecond: bigint = await rentalContract.rentalPrices(tokenId);
-    const creator = await agentContract.ownerOf(tokenId);
-
-    return buildAgentData(tokenId, creator, pricePerSecond, tokenUri, metadata);
-  } catch (error) {
-    console.error(`Failed to load agent ${tokenId}`, error);
+function cloneAgent(agent: AgentRecord | undefined): AgentData | null {
+  if (!agent) {
     return null;
   }
+
+  const { metadata, ...rest } = agent;
+  return JSON.parse(JSON.stringify(rest)) as AgentData;
+}
+
+export async function fetchAgents(): Promise<AgentData[]> {
+  return AGENT_CATALOG.map((agent) => cloneAgent(agent)).filter(
+    (agent): agent is AgentData => agent !== null
+  );
+}
+
+export async function fetchAgent(tokenId: number): Promise<AgentData | null> {
+  const agent = AGENT_CATALOG.find((item) => item.tokenId === tokenId);
+  return cloneAgent(agent);
+}
+
+export async function fetchAgentBySlug(
+  slug: string
+): Promise<AgentData | null> {
+  const agent = AGENT_CATALOG.find((item) => item.slug === slug);
+  return cloneAgent(agent);
 }

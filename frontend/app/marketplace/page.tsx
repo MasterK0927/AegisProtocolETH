@@ -17,13 +17,6 @@ import { Input } from "@/components/ui/input";
 import HomeHeader from "@/components/home-header";
 import { fetchAgents, type AgentData } from "@/lib/agents";
 
-function formatAddress(address: string) {
-  if (!address) {
-    return "Unknown";
-  }
-  return `${address.slice(0, 6)}...${address.slice(-4)}`;
-}
-
 export default function MarketplacePage() {
   const [agents, setAgents] = useState<AgentData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,9 +36,7 @@ export default function MarketplacePage() {
       } catch (err) {
         console.error("Failed to fetch agents", err);
         if (mounted) {
-          setError(
-            "Unable to load agents from the blockchain. Ensure the local Hardhat node is running and contracts are deployed."
-          );
+          setError("Unable to load the agent catalog. Please try again.");
         }
       } finally {
         if (mounted) {
@@ -138,7 +129,7 @@ export default function MarketplacePage() {
 
           {isLoading && (
             <div className="text-muted-foreground">
-              Loading agents from the blockchain...
+              Loading marketplace agents…
             </div>
           )}
 
@@ -154,19 +145,12 @@ export default function MarketplacePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {filteredAgents.map((agent) => {
-              const metadataDetails = agent.metadata?.aegis;
-              const trending = Boolean(metadataDetails?.trending);
-              const usageDelta =
-                typeof metadataDetails?.usageDelta === "string"
-                  ? metadataDetails.usageDelta
-                  : undefined;
+              const trending = Boolean(agent.trending);
               const usage =
-                usageDelta ??
-                (agent.totalRentals
-                  ? `${agent.totalRentals} total rentals`
-                  : "Recently added");
-              const creatorLabel =
-                agent.creatorName ?? formatAddress(agent.creator);
+                agent.usageDelta ??
+                (agent.totalSessions
+                  ? `${agent.totalSessions.toLocaleString()} lifetime sessions`
+                  : "Recently listed");
 
               return (
                 <Card
@@ -192,10 +176,8 @@ export default function MarketplacePage() {
                   </CardHeader>
 
                   <CardContent className="pt-0 space-y-3">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        {creatorLabel}
-                      </span>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>Pay-per-call</span>
                       <Badge variant="outline">{agent.category}</Badge>
                     </div>
 
@@ -251,14 +233,9 @@ export default function MarketplacePage() {
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
-                      <div>
-                        <span className="text-2xl font-bold text-foreground">
-                          {agent.hourlyRateEth.toFixed(3)}
-                        </span>
-                        <span className="text-sm text-muted-foreground ml-1">
-                          ETH/hr
-                        </span>
-                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {agent.pricing.displayLabel}
+                      </span>
                       <Button asChild size="sm">
                         <Link href={`/agent/${agent.tokenId}`}>Explore</Link>
                       </Button>

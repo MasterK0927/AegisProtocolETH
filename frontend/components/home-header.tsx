@@ -15,19 +15,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useWeb3 } from "@/hooks/use-web3";
 import { useToast } from "@/hooks/use-toast";
-import { SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
 
 type HomeHeaderProps = {
   variant?: "default" | "landing";
 };
 
 export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
-  const { address, connect, disconnect, isConnecting, chainId } = useWeb3();
+  const { address, connect, disconnect, isConnecting } = useWeb3();
   const { toast } = useToast();
-
-  const isUnsupportedChain = useMemo(() => {
-    return chainId !== null && !SUPPORTED_CHAIN_IDS.includes(chainId);
-  }, [chainId]);
 
   const handleConnect = useCallback(async () => {
     try {
@@ -162,12 +157,6 @@ export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
           )}
         </div>
       </nav>
-      {isUnsupportedChain && (
-        <div className="w-full bg-destructive/10 text-destructive text-center text-sm py-2">
-          Connected to unsupported network. Please switch to Hardhat localhost
-          (chain 31337).
-        </div>
-      )}
       <div className="h-20" aria-hidden />
     </>
   );
