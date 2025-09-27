@@ -1,12 +1,18 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { ArrowRight } from "lucide-react"
-import type { AgentData } from "@/app/create/page"
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowRight } from "lucide-react";
+import type { AgentData } from "@/app/create/page";
 
 const categories = [
   "Writing",
@@ -19,7 +25,7 @@ const categories = [
   "Education",
   "Finance",
   "Other",
-]
+];
 
 const outputTypes = [
   "Analyze data",
@@ -30,34 +36,40 @@ const outputTypes = [
   "Send messages",
   "Write content",
   "Other",
-]
+];
 
 interface DescriptionStepProps {
-  data: AgentData
-  onUpdate: (updates: Partial<AgentData>) => void
-  onNext: () => void
+  data: AgentData;
+  onUpdate: (updates: Partial<AgentData>) => void;
+  onNext: () => void;
 }
 
-export function DescriptionStep({ data, onUpdate, onNext }: DescriptionStepProps) {
+export function DescriptionStep({
+  data,
+  onUpdate,
+  onNext,
+}: DescriptionStepProps) {
   const handleOutputToggle = (output: string) => {
     const newOutputs = data.outputs.includes(output)
       ? data.outputs.filter((o) => o !== output)
-      : [...data.outputs, output]
-    onUpdate({ outputs: newOutputs })
-  }
+      : [...data.outputs, output];
+    onUpdate({ outputs: newOutputs });
+  };
 
   const canProceed =
     data.name.trim() &&
     data.description.trim() &&
     data.shortDescription.trim() &&
     data.category &&
-    data.outputs.length > 0
+    data.outputs.length > 0;
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Describe what you need your agent to do</CardTitle>
-        <CardDescription>Be specific about the agent's role and responsibilities</CardDescription>
+        <CardDescription>
+          Be specific about the agent&apos;s role and responsibilities
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         {/* Agent Name */}
@@ -72,7 +84,9 @@ export function DescriptionStep({ data, onUpdate, onNext }: DescriptionStepProps
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="shortDescription">Short Description (for marketplace)</Label>
+          <Label htmlFor="shortDescription">
+            Short Description (for marketplace)
+          </Label>
           <Input
             id="shortDescription"
             placeholder="e.g., Advanced research with academic databases"
@@ -81,7 +95,8 @@ export function DescriptionStep({ data, onUpdate, onNext }: DescriptionStepProps
             maxLength={60}
           />
           <p className="text-xs text-muted-foreground">
-            This will be shown on marketplace cards. Keep it concise and descriptive.
+            This will be shown on marketplace cards. Keep it concise and
+            descriptive.
           </p>
         </div>
 
@@ -139,5 +154,5 @@ export function DescriptionStep({ data, onUpdate, onNext }: DescriptionStepProps
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

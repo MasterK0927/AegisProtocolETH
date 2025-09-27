@@ -1,24 +1,209 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Rocket } from "lucide-react"
-import type { AgentData } from "@/app/create/page"
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Contract, parseEther } from "ethers";
+import type { Log } from "ethers";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2, Rocket } from "lucide-react";
+import type { AgentData } from "@/app/create/page";
+import { uploadAgentMetadata, type AgentMetadataPayload } from "@/lib/storage";
+import { useWeb3 } from "@/hooks/use-web3";
+import { useToast } from "@/hooks/use-toast";
+import { getContractConfig, SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
 
 interface ReviewStepProps {
-  data: AgentData
-  onUpdate: (updates: Partial<AgentData>) => void
+  data: AgentData;
+  onUpdate: (updates: Partial<AgentData>) => void;
 }
 
 export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
-  const handleDeploy = () => {
-    // In real app, this would deploy to blockchain and create the agent
-    alert(`Agent "${data.name}" deployed successfully! Redirecting to marketplace...`)
-    window.location.href = "/marketplace"
-  }
+  const [isDeploying, setIsDeploying] = useState(false);
+  const router = useRouter();
+  const { toast } = useToast();
+  const { signer, connect, address, chainId } = useWeb3();
+
+  const handleDeploy = async () => {
+    if (isDeploying) {
+      return;
+    }
+
+    if (!data.name.trim()) {
+      toast({
+        title: "Agent name required",
+        description: "Give your agent a name before deploying.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!data.shortDescription.trim() && !data.description.trim()) {
+      toast({
+        title: "Add a description",
+        description:
+          "Provide a short or long description so renters know what your agent does.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(data.hourlyRate) || data.hourlyRate <= 0) {
+      toast({
+        title: "Invalid hourly rate",
+        description: "Set a positive hourly rate in ETH before deploying.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsDeploying(true);
+
+    try {
+      let activeSigner = signer;
+      let activeAddress = address;
+      let activeChainId = chainId;
+
+      if (!activeSigner || !activeAddress || activeChainId === null) {
+        const connection = await connect();
+        activeSigner = connection?.signer ?? null;
+        activeAddress = connection?.address ?? null;
+        activeChainId = connection?.chainId ?? null;
+      }
+
+      if (!activeSigner || !activeAddress || activeChainId === null) {
+        throw new Error("Wallet connection is required to deploy your agent.");
+      }
+
+      if (!SUPPORTED_CHAIN_IDS.includes(activeChainId)) {
+        throw new Error(
+          "Please switch to the Hardhat localhost network (chain 31337) and try again."
+        );
+      }
+
+      const now = new Date().toISOString();
+      const metadataPayload: AgentMetadataPayload = {
+        name: data.name || `Agent created ${now}`,
+        description:
+          data.description || data.shortDescription || "Aegis Protocol agent",
+        shortDescription: data.shortDescription,
+        attributes: [
+          { trait_type: "category", value: data.category },
+          { trait_type: "hourlyRate", value: data.hourlyRate },
+        ],
+        aegis: {
+          name: data.name,
+          shortDescription: data.shortDescription,
+          description: data.description,
+          category: data.category,
+          tools: data.tools,
+          capabilities: data.outputs,
+          context: data.context,
+          hourlyRate: data.hourlyRate,
+          outputs: data.outputs,
+          createdBy: activeAddress,
+          createdAt: now,
+        },
+      };
+
+      toast({
+        title: "Uploading agent metadata",
+        description: "Saving details to Filecoin via Lighthouse...",
+      });
+
+      const uploadResult = await uploadAgentMetadata(
+        metadataPayload,
+        data.files
+      );
+
+      toast({
+        title: "Minting agent NFT",
+        description: "Please confirm the mint transaction in your wallet.",
+      });
+
+      const agentConfig = getContractConfig(activeChainId, "AgentNFT");
+      const agentContract = new Contract(
+        agentConfig.address,
+        agentConfig.abi,
+        activeSigner
+      );
+      const mintTx = await agentContract.mintAgent(uploadResult.uri);
+      const mintReceipt = await mintTx.wait();
+
+      let predictedTokenId: bigint | null = null;
+      for (const logEntry of mintReceipt.logs as ReadonlyArray<Log>) {
+        try {
+          const parsed = agentContract.interface.parseLog(logEntry);
+          if (parsed?.name === "AgentMinted") {
+            predictedTokenId = BigInt(parsed.args[0].toString());
+            break;
+          }
+        } catch {
+          // ignore unrelated logs
+        }
+      }
+
+      if (predictedTokenId === null) {
+        throw new Error(
+          "Mint transaction completed but no AgentMinted event was found."
+        );
+      }
+
+      toast({
+        title: "Setting rental price",
+        description: "Publishing your hourly rate to the marketplace...",
+      });
+
+      const hourlyRateWei = parseEther(data.hourlyRate.toString());
+      const pricePerSecond = hourlyRateWei / 3600n;
+      if (pricePerSecond <= 0n) {
+        throw new Error(
+          "Hourly rate is too low. Increase it slightly and try again."
+        );
+      }
+
+      const rentalConfig = getContractConfig(activeChainId, "RentalContract");
+      const rentalContract = new Contract(
+        rentalConfig.address,
+        rentalConfig.abi,
+        activeSigner
+      );
+      const priceTx = await rentalContract.setRentalPrice(
+        predictedTokenId,
+        pricePerSecond
+      );
+      await priceTx.wait();
+
+      toast({
+        title: "Agent deployed",
+        description: "Your agent is live on the marketplace!",
+      });
+
+      router.push(`/agent/${Number(predictedTokenId)}`);
+    } catch (error) {
+      console.error("Agent deployment failed", error);
+      toast({
+        title: "Deployment failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while deploying your agent.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -31,7 +216,9 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
           </CardTitle>
           <CardDescription>{data.shortDescription}</CardDescription>
           {data.description !== data.shortDescription && (
-            <p className="text-sm text-muted-foreground mt-2">{data.description}</p>
+            <p className="text-sm text-muted-foreground mt-2">
+              {data.description}
+            </p>
           )}
         </CardHeader>
         <CardContent className="space-y-4">
@@ -55,13 +242,17 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
           {data.context && (
             <div>
               <Label className="text-sm font-medium">Additional Context</Label>
-              <p className="text-sm text-muted-foreground mt-1">{data.context}</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                {data.context}
+              </p>
             </div>
           )}
 
           {data.files.length > 0 && (
             <div>
-              <Label className="text-sm font-medium">Uploaded Files ({data.files.length})</Label>
+              <Label className="text-sm font-medium">
+                Uploaded Files ({data.files.length})
+              </Label>
               <div className="mt-2 space-y-1">
                 {data.files.map((file, index) => (
                   <div key={index} className="text-sm text-muted-foreground">
@@ -77,7 +268,9 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       {/* Tools */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Tools & Capabilities ({data.tools.length})</CardTitle>
+          <CardTitle className="text-lg">
+            Tools & Capabilities ({data.tools.length})
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
@@ -106,12 +299,18 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
                 step="0.001"
                 min="0.001"
                 value={data.hourlyRate}
-                onChange={(e) => onUpdate({ hourlyRate: Number.parseFloat(e.target.value) || 0.05 })}
+                onChange={(e) =>
+                  onUpdate({
+                    hourlyRate: Number.parseFloat(e.target.value) || 0.05,
+                  })
+                }
               />
             </div>
             <div className="text-sm text-muted-foreground">
               <div>Platform fee: 2.5%</div>
-              <div>You earn: {(data.hourlyRate * 0.975).toFixed(4)} ETH/hour</div>
+              <div>
+                You earn: {(data.hourlyRate * 0.975).toFixed(4)} ETH/hour
+              </div>
             </div>
           </div>
         </CardContent>
@@ -121,27 +320,46 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Ready to Deploy</CardTitle>
-          <CardDescription>Your agent will be deployed to the blockchain and listed on the marketplace</CardDescription>
+          <CardDescription>
+            Your agent will be deployed to the blockchain and listed on the
+            marketplace
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
             <div className="p-4 bg-muted rounded-lg">
               <h4 className="font-medium mb-2">What happens next:</h4>
               <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Agent deployed to blockchain (requires wallet signature)</li>
+                <li>
+                  • Agent deployed to blockchain (requires wallet signature)
+                </li>
                 <li>• Listed on Aegis Protocol marketplace</li>
                 <li>• Available for rental by other users</li>
                 <li>• You earn ETH from each rental</li>
               </ul>
             </div>
 
-            <Button onClick={handleDeploy} size="lg" className="w-full">
-              <Rocket className="w-4 h-4 mr-2" />
-              Deploy Agent to Marketplace
+            <Button
+              onClick={handleDeploy}
+              size="lg"
+              className="w-full"
+              disabled={isDeploying}
+            >
+              {isDeploying ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deploying...
+                </>
+              ) : (
+                <>
+                  <Rocket className="w-4 h-4 mr-2" />
+                  Deploy Agent to Marketplace
+                </>
+              )}
             </Button>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

@@ -1,23 +1,32 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
-import { Card, CardContent } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import { Badge } from "@/components/ui/badge"
-import { Clock, Wallet, ArrowRight, Timer, Zap } from "lucide-react"
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { formatEther } from "ethers";
+import { Clock, Wallet, ArrowRight, Timer, Zap } from "lucide-react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Card, CardContent } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { useWeb3 } from "@/hooks/use-web3";
+import { rentAgent } from "@/lib/rentals";
+import type { AgentData } from "@/lib/agents";
 
 interface RentalModalProps {
-  isOpen: boolean
-  onClose: () => void
-  agent: {
-    name: string
-    hourlyRate: number
-    avatar: string
-  }
+  isOpen: boolean;
+  onClose: () => void;
+  agent: AgentData;
 }
 
 const quickTimeOptions = [
@@ -26,45 +35,112 @@ const quickTimeOptions = [
   { hours: 6, label: "6 hours", popular: false },
   { hours: 12, label: "12 hours", popular: true },
   { hours: 24, label: "24 hours", popular: false },
-]
+];
 
 export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
-  const [hours, setHours] = useState([3])
-  const [showWalletSelection, setShowWalletSelection] = useState(false)
-  const [selectedQuickTime, setSelectedQuickTime] = useState(3)
+  const [hours, setHours] = useState([3]);
+  const [showWalletSelection, setShowWalletSelection] = useState(false);
+  const [selectedQuickTime, setSelectedQuickTime] = useState(3);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const totalCost = hours[0] * agent.hourlyRate
-  const platformFee = totalCost * 0.025 // 2.5% platform fee
-  const finalCost = totalCost + platformFee
+  const router = useRouter();
+  const { toast } = useToast();
+  const { signer, connect, chainId, isConnecting } = useWeb3();
+
+  const durationSeconds = useMemo(() => BigInt(hours[0]) * 3600n, [hours]);
+  const totalCostWei = useMemo(
+    () => agent.pricePerSecondWei * durationSeconds,
+    [agent.pricePerSecondWei, durationSeconds]
+  );
+  const totalCostEth = useMemo(
+    () => Number.parseFloat(formatEther(totalCostWei)),
+    [totalCostWei]
+  );
+  const platformFee = useMemo(() => totalCostEth * 0.025, [totalCostEth]);
+  const finalCost = useMemo(
+    () => totalCostEth + platformFee,
+    [totalCostEth, platformFee]
+  );
 
   const handleQuickTimeSelect = (selectedHours: number) => {
-    setHours([selectedHours])
-    setSelectedQuickTime(selectedHours)
-  }
+    setHours([selectedHours]);
+    setSelectedQuickTime(selectedHours);
+  };
 
   const handleSliderChange = (newHours: number[]) => {
-    setHours(newHours)
-    setSelectedQuickTime(0) // Clear quick selection when using slider
-  }
+    setHours(newHours);
+    setSelectedQuickTime(0); // Clear quick selection when using slider
+  };
 
   const handleRent = () => {
-    setShowWalletSelection(true)
-  }
+    setShowWalletSelection(true);
+  };
 
-  const handleWalletConnect = () => {
-    // In real app, this would connect to MetaMask and process payment
-    alert(`Renting ${agent.name} for ${hours[0]} hour(s) - ${finalCost.toFixed(4)} ETH`)
-    onClose()
-    // Redirect to chat interface
-    window.location.href = `/chat/${agent.name.toLowerCase().replace(/\s+/g, "-")}`
-  }
+  const handleWalletConnect = async () => {
+    let activeSigner = signer;
+    let activeChainId = chainId;
+
+    try {
+      if (!activeSigner || !activeChainId) {
+        const result = await connect();
+        activeSigner = result.signer;
+        activeChainId = result.chainId;
+      }
+    } catch (error) {
+      toast({
+        title: "Wallet connection failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please ensure MetaMask is installed and unlocked.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!activeSigner || !activeChainId) {
+      toast({
+        title: "Wallet not connected",
+        description: "Please connect your wallet to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      await rentAgent(agent.tokenId, hours[0], {
+        signer: activeSigner,
+        chainId: activeChainId,
+      });
+      toast({
+        title: "Rental confirmed",
+        description: `${agent.name} is now rented for ${hours[0]} hour(s).`,
+      });
+      onClose();
+      router.push(`/chat/${agent.tokenId}`);
+    } catch (error) {
+      console.error("Rental failed", error);
+      toast({
+        title: "Unable to complete rental",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Check your wallet confirmation and try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const getSavingsText = () => {
-    if (hours[0] >= 12) return "Best value for extended use"
-    if (hours[0] >= 6) return "Great for complex projects"
-    if (hours[0] >= 3) return "Popular choice"
-    return "Perfect for quick tasks"
-  }
+    if (hours[0] >= 12) return "Best value for extended use";
+    if (hours[0] >= 6) return "Great for complex projects";
+    if (hours[0] >= 3) return "Popular choice";
+    return "Perfect for quick tasks";
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -76,7 +152,9 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                 <span className="text-2xl">{agent.avatar}</span>
                 Rent {agent.name}
               </DialogTitle>
-              <DialogDescription>Choose your rental duration and complete payment</DialogDescription>
+              <DialogDescription>
+                Choose your rental duration and complete payment
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-6 py-4">
@@ -87,13 +165,19 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                   {quickTimeOptions.map((option) => (
                     <Button
                       key={option.hours}
-                      variant={selectedQuickTime === option.hours ? "default" : "outline"}
+                      variant={
+                        selectedQuickTime === option.hours
+                          ? "default"
+                          : "outline"
+                      }
                       size="sm"
                       className="relative flex flex-col h-auto py-3"
                       onClick={() => handleQuickTimeSelect(option.hours)}
                     >
                       {option.popular && (
-                        <Badge className="absolute -top-2 -right-1 text-xs px-1 py-0 h-4">Popular</Badge>
+                        <Badge className="absolute -top-2 -right-1 text-xs px-1 py-0 h-4">
+                          Popular
+                        </Badge>
                       )}
                       <Timer className="w-3 h-3 mb-1" />
                       <span className="text-xs">{option.label}</span>
@@ -104,7 +188,9 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
 
               <div className="flex items-center gap-4">
                 <div className="flex-1 h-px bg-border"></div>
-                <span className="text-xs text-muted-foreground">or customize</span>
+                <span className="text-xs text-muted-foreground">
+                  or customize
+                </span>
                 <div className="flex-1 h-px bg-border"></div>
               </div>
 
@@ -129,7 +215,9 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                   <div className="text-3xl font-bold text-foreground">
                     {hours[0]} hour{hours[0] > 1 ? "s" : ""}
                   </div>
-                  <div className="text-sm text-muted-foreground">{getSavingsText()}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {getSavingsText()}
+                  </div>
                 </div>
               </div>
 
@@ -140,9 +228,10 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                 <CardContent className="p-4 space-y-3">
                   <div className="flex justify-between text-sm">
                     <span>
-                      Agent rental ({hours[0]}h × {agent.hourlyRate} ETH)
+                      Agent rental ({hours[0]}h ×{" "}
+                      {agent.hourlyRateEth.toFixed(4)} ETH)
                     </span>
-                    <span>{totalCost.toFixed(4)} ETH</span>
+                    <span>{totalCostEth.toFixed(4)} ETH</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span>Platform fee (2.5%)</span>
@@ -179,9 +268,14 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                 </div>
               </div>
 
-              <Button onClick={handleRent} className="w-full" size="lg">
+              <Button
+                onClick={handleRent}
+                className="w-full"
+                size="lg"
+                disabled={isConnecting}
+              >
                 <Clock className="w-4 h-4 mr-2" />
-                Continue to Payment
+                {isConnecting ? "Connecting wallet…" : "Continue to Payment"}
               </Button>
             </div>
           </>
@@ -192,7 +286,9 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                 <Wallet className="w-5 h-5" />
                 Connect Wallet
               </DialogTitle>
-              <DialogDescription>Choose your wallet to complete the rental payment</DialogDescription>
+              <DialogDescription>
+                Choose your wallet to complete the rental payment
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
@@ -207,15 +303,30 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold">{finalCost.toFixed(4)} ETH</div>
-                      <div className="text-sm text-muted-foreground">≈ ${(finalCost * 2500).toFixed(2)} USD</div>
+                      <div className="font-bold">
+                        {finalCost.toFixed(4)} ETH
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        ≈ ${(finalCost * 2500).toFixed(2)} USD
+                      </div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Wallet Options */}
-              <Card className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={handleWalletConnect}>
+              <Card
+                className={`cursor-pointer transition-colors ${
+                  isProcessing || isConnecting
+                    ? "opacity-60 pointer-events-none"
+                    : "hover:bg-muted/50"
+                }`}
+                onClick={() => {
+                  if (!isProcessing && !isConnecting) {
+                    void handleWalletConnect();
+                  }
+                }}
+              >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -224,16 +335,26 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
                       </div>
                       <div>
                         <div className="font-medium">MetaMask</div>
-                        <div className="text-sm text-muted-foreground">Connect using browser wallet</div>
+                        <div className="text-sm text-muted-foreground">
+                          {isProcessing
+                            ? "Waiting for confirmation…"
+                            : isConnecting
+                            ? "Check your wallet to confirm"
+                            : "Connect using browser wallet"}
+                        </div>
                       </div>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    {!isProcessing && !isConnecting && (
+                      <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
               <div className="text-center">
-                <div className="text-sm text-muted-foreground mb-2">More wallet options coming soon</div>
+                <div className="text-sm text-muted-foreground mb-2">
+                  More wallet options coming soon
+                </div>
                 <div className="flex items-center justify-center gap-4 opacity-50">
                   <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center">
                     <span className="text-white font-bold text-xs">CB</span>
@@ -256,5 +377,5 @@ export function RentalModal({ isOpen, onClose, agent }: RentalModalProps) {
         )}
       </DialogContent>
     </Dialog>
-  )
+  );
 }

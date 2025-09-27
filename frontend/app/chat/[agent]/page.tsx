@@ -1,101 +1,397 @@
-"use client"
+"use client";
 
-import type React from "react"
+import type React from "react";
 
-import { useState, useRef, useEffect } from "react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Send, Clock, Download, Share, MoreVertical, Zap, Timer, ArrowLeft, Paperclip, Mic, Square } from "lucide-react"
-import Link from "next/link"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  Clock,
+  Download,
+  Mic,
+  MoreVertical,
+  Paperclip,
+  Send,
+  Share,
+  Square,
+  Timer,
+  Zap,
+} from "lucide-react";
 
-interface Message {
-  id: string
-  content: string
-  sender: "user" | "agent"
-  timestamp: Date
-  type?: "text" | "file" | "image"
-}
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useToast } from "@/hooks/use-toast";
+import { useWeb3 } from "@/hooks/use-web3";
+import { fetchAgent, type AgentData } from "@/lib/agents";
+import { fetchActiveRental, type ActiveRental } from "@/lib/rentals";
 
-// Mock agent data
-const agentInfo = {
-  name: "Research Assistant Pro",
-  avatar: "🔬",
-  status: "online",
-  timeRemaining: "2h 34m",
-  capabilities: ["Research", "Analysis", "Writing"],
+type Message = {
+  id: string;
+  content: string;
+  sender: "user" | "agent";
+  timestamp: Date;
+  type?: "text" | "file" | "image";
+};
+
+function formatAddress(address?: string | null) {
+  if (!address) {
+    return "";
+  }
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 export default function ChatPage({ params }: { params: { agent: string } }) {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "1",
-      content:
-        "Hello! I'm your Research Assistant Pro. I'm ready to help you with research, analysis, and writing tasks. What would you like to work on today?",
-      sender: "agent",
-      timestamp: new Date(Date.now() - 60000),
-    },
-  ])
-  const [inputValue, setInputValue] = useState("")
-  const [isTyping, setIsTyping] = useState(false)
-  const [isRecording, setIsRecording] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const tokenId = useMemo(
+    () => Number.parseInt(params.agent, 10),
+    [params.agent]
+  );
+  const { toast } = useToast();
+  const { address, connect, disconnect, isConnecting, chainId } = useWeb3();
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
+  const [agent, setAgent] = useState<AgentData | null>(null);
+  const [rental, setRental] = useState<ActiveRental | null>(null);
+  const [rentalLoaded, setRentalLoaded] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputValue, setInputValue] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [hasInitializedMessages, setHasInitializedMessages] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [userIsRenter, setUserIsRenter] = useState(false);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const refreshRental = useCallback(async () => {
+    if (Number.isNaN(tokenId)) {
+      return;
+    }
+
+    try {
+      const rentalData = await fetchActiveRental(
+        tokenId,
+        chainId ? { chainId } : undefined
+      );
+      setRental(rentalData);
+      setRentalLoaded(true);
+    } catch (err) {
+      console.error("Failed to fetch rental information", err);
+    }
+  }, [tokenId, chainId]);
+
+  const updateTimeRemaining = useCallback(() => {
+    if (!rental) {
+      setTimeRemaining(null);
+      setSessionActive(false);
+      setUserIsRenter(false);
+      return;
+    }
+
+    const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+    if (rental.expiresAt <= nowSeconds) {
+      setTimeRemaining(null);
+      setSessionActive(false);
+      setUserIsRenter(false);
+      return;
+    }
+
+    const secondsLeft = rental.expiresAt - nowSeconds;
+    const hours = Number(secondsLeft / 3600n);
+    const minutes = Number((secondsLeft % 3600n) / 60n);
+    const label =
+      secondsLeft < 60n
+        ? "<1m"
+        : `${hours > 0 ? `${hours}h ` : ""}${minutes
+            .toString()
+            .padStart(2, "0")}m`;
+
+    setTimeRemaining(label.trim());
+    setSessionActive(true);
+    const normalizedAddress = address?.toLowerCase();
+    setUserIsRenter(
+      Boolean(normalizedAddress) && rental.renter === normalizedAddress
+    );
+  }, [address, rental]);
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    if (Number.isNaN(tokenId)) {
+      setError("Invalid agent identifier.");
+      setIsLoading(false);
+      return;
+    }
 
-  const handleSendMessage = async () => {
-    if (!inputValue.trim()) return
+    let cancelled = false;
+
+    const load = async () => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const data = await fetchAgent(tokenId);
+        if (cancelled) {
+          return;
+        }
+
+        if (!data) {
+          setError("Agent not found.");
+          return;
+        }
+
+        setAgent(data);
+      } catch (err) {
+        console.error("Failed to load agent", err);
+        if (!cancelled) {
+          setError(
+            "Unable to load agent data. Ensure the local Hardhat node is running and contracts are deployed."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tokenId]);
+
+  useEffect(() => {
+    setRentalLoaded(false);
+    setSessionActive(false);
+    setUserIsRenter(false);
+    setTimeRemaining(null);
+    setRental(null);
+  }, [tokenId]);
+
+  useEffect(() => {
+    if (Number.isNaN(tokenId)) {
+      return;
+    }
+
+    refreshRental();
+    const interval = setInterval(refreshRental, 30000);
+    return () => clearInterval(interval);
+  }, [tokenId, refreshRental]);
+
+  useEffect(() => {
+    updateTimeRemaining();
+    if (!rental) {
+      return;
+    }
+
+    const interval = setInterval(updateTimeRemaining, 30000);
+    return () => clearInterval(interval);
+  }, [rental, updateTimeRemaining]);
+
+  useEffect(() => {
+    updateTimeRemaining();
+  }, [address, updateTimeRemaining]);
+
+  useEffect(() => {
+    if (!agent || hasInitializedMessages) {
+      return;
+    }
+
+    const intro =
+      agent.shortDescription ||
+      agent.description ||
+      "I'm ready to help you today.";
+    setMessages([
+      {
+        id: "intro",
+        content: `Hello! I'm ${agent.name}. ${intro}`,
+        sender: "agent",
+        timestamp: new Date(),
+      },
+    ]);
+    setHasInitializedMessages(true);
+  }, [agent, hasInitializedMessages]);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, scrollToBottom]);
+
+  const banner = useMemo(() => {
+    if (!rentalLoaded) {
+      return null;
+    }
+
+    if (!address) {
+      return {
+        tone: "warning" as const,
+        message: "Connect your wallet to access your rental session.",
+      };
+    }
+
+    if (!sessionActive) {
+      return {
+        tone: "warning" as const,
+        message:
+          "You don't have an active rental for this agent. Rent it from the marketplace to start chatting.",
+      };
+    }
+
+    if (!userIsRenter) {
+      return {
+        tone: "warning" as const,
+        message: "This agent is currently rented by another wallet.",
+      };
+    }
+
+    return null;
+  }, [address, rentalLoaded, sessionActive, userIsRenter]);
+
+  const canSendMessages = Boolean(address && sessionActive && userIsRenter);
+
+  const handleSendMessage = useCallback(() => {
+    if (!agent) {
+      return;
+    }
+
+    if (!inputValue.trim()) {
+      return;
+    }
+
+    if (!canSendMessages) {
+      toast({
+        title: "No active rental",
+        description:
+          "You need an active rental to send messages to this agent.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
       content: inputValue,
       sender: "user",
       timestamp: new Date(),
-    }
+    };
 
-    setMessages((prev) => [...prev, userMessage])
-    setInputValue("")
-    setIsTyping(true)
+    setMessages((prev) => [...prev, userMessage]);
+    setInputValue("");
+    setIsTyping(true);
 
-    // Simulate agent response
     setTimeout(() => {
       const agentMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        content: `I understand you want to ${inputValue.toLowerCase()}. Let me help you with that. I'll analyze the information and provide you with a comprehensive response based on my research capabilities.`,
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        content: `I'll look into that for you. ${
+          agent.name
+        } specializes in ${agent.category.toLowerCase()} tasks and will provide an update shortly.`,
         sender: "agent",
         timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, agentMessage])
-      setIsTyping(false)
-    }, 2000)
-  }
+      };
+      setMessages((prev) => [...prev, agentMessage]);
+      setIsTyping(false);
+    }, 1500);
+  }, [agent, canSendMessages, inputValue, toast]);
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      handleSendMessage()
+  const handleKeyPress = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      handleSendMessage();
     }
-  }
+  };
+
+  const handleConnect = useCallback(async () => {
+    try {
+      await connect();
+      await refreshRental();
+    } catch (err) {
+      toast({
+        title: "Wallet connection failed",
+        description:
+          err instanceof Error
+            ? err.message
+            : "Please ensure MetaMask is installed and unlocked.",
+        variant: "destructive",
+      });
+    }
+  }, [connect, refreshRental, toast]);
+
+  const handleExtendTime = useCallback(() => {
+    toast({
+      title: "Extend rental coming soon",
+      description: "You'll be able to extend sessions in a future update.",
+    });
+  }, [toast]);
+
+  const handleEndSession = useCallback(() => {
+    toast({
+      title: "Manual end not available",
+      description: "Sessions expire automatically when the rental ends.",
+    });
+  }, [toast]);
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString("en-US", {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    })
+    });
+  };
+
+  const statusDotClass = sessionActive
+    ? userIsRenter
+      ? "text-green-500"
+      : "text-amber-500"
+    : "text-muted-foreground";
+  const sessionStatus = sessionActive
+    ? userIsRenter
+      ? "Active rental"
+      : "In use by another wallet"
+    : "No active rental";
+
+  if (isLoading) {
+    return (
+      <div className="h-screen bg-background flex items-center justify-center text-muted-foreground">
+        Loading agent chat…
+      </div>
+    );
   }
+
+  if (error || !agent) {
+    return (
+      <div className="h-screen bg-background flex flex-col items-center justify-center gap-4 text-center px-6">
+        <div className="text-2xl font-semibold">
+          {error ?? "Agent not found."}
+        </div>
+        <Button asChild variant="outline">
+          <Link href="/marketplace">Back to marketplace</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  const displayedCapabilities =
+    agent.capabilities.length > 0 ? agent.capabilities.slice(0, 4) : [];
+  const avatarIsImage =
+    agent.avatar.startsWith("http") || agent.avatar.startsWith("data:");
+  const agentAvatarLabel = agent.avatar || "🤖";
+  const userAvatarLabel = address ? address.slice(2, 4).toUpperCase() : "U";
+  const walletButtonDisabled = Boolean(isConnecting && !address);
+  const walletButtonLabel = address
+    ? formatAddress(address)
+    : isConnecting
+    ? "Connecting…"
+    : "Connect Wallet";
 
   return (
     <div className="h-screen bg-background flex flex-col">
-      {/* Header */}
       <div className="border-b border-border bg-card">
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-4">
@@ -108,19 +404,31 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
             <div className="flex items-center gap-3">
               <div className="relative">
                 <Avatar className="w-10 h-10">
-                  <AvatarFallback className="text-lg">{agentInfo.avatar}</AvatarFallback>
+                  {avatarIsImage ? (
+                    <AvatarImage src={agent.avatar} alt={agent.name} />
+                  ) : (
+                    <AvatarFallback className="text-lg">
+                      {agentAvatarLabel}
+                    </AvatarFallback>
+                  )}
                 </Avatar>
-                <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background"></div>
+                {sessionActive && userIsRenter && (
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background" />
+                )}
               </div>
 
               <div>
-                <h1 className="font-semibold text-foreground">{agentInfo.name}</h1>
+                <h1 className="font-semibold text-foreground">{agent.name}</h1>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span className="text-green-500">●</span>
-                  <span>Online</span>
-                  <span>•</span>
-                  <Clock className="w-3 h-3" />
-                  <span>{agentInfo.timeRemaining} remaining</span>
+                  <span className={statusDotClass}>●</span>
+                  <span>{sessionStatus}</span>
+                  {sessionActive && timeRemaining && (
+                    <>
+                      <span>•</span>
+                      <Clock className="w-3 h-3" />
+                      <span>{timeRemaining} remaining</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -128,12 +436,31 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
 
           <div className="flex items-center gap-2">
             <div className="flex gap-1">
-              {agentInfo.capabilities.map((capability) => (
-                <Badge key={capability} variant="secondary" className="text-xs">
-                  {capability}
+              {displayedCapabilities.length > 0 ? (
+                displayedCapabilities.map((capability) => (
+                  <Badge
+                    key={capability}
+                    variant="secondary"
+                    className="text-xs"
+                  >
+                    {capability}
+                  </Badge>
+                ))
+              ) : (
+                <Badge variant="outline" className="text-xs">
+                  No capabilities listed
                 </Badge>
-              ))}
+              )}
             </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={walletButtonDisabled && !address}
+              onClick={address ? disconnect : handleConnect}
+            >
+              {walletButtonLabel}
+            </Button>
 
             <Button variant="ghost" size="sm">
               <Share className="w-4 h-4" />
@@ -148,26 +475,58 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
         </div>
       </div>
 
-      {/* Messages */}
+      {banner && (
+        <div className="px-6 py-3">
+          <div className="bg-amber-500/10 border border-amber-500/40 text-amber-600 px-4 py-3 rounded-lg text-sm">
+            {banner.message}
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.map((message) => (
-          <div key={message.id} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`flex gap-3 max-w-2xl ${message.sender === "user" ? "flex-row-reverse" : "flex-row"}`}>
+          <div
+            key={message.id}
+            className={`flex ${
+              message.sender === "user" ? "justify-end" : "justify-start"
+            }`}
+          >
+            <div
+              className={`flex gap-3 max-w-2xl ${
+                message.sender === "user" ? "flex-row-reverse" : "flex-row"
+              }`}
+            >
               <Avatar className="w-8 h-8 flex-shrink-0">
-                <AvatarFallback className="text-sm">
-                  {message.sender === "user" ? "U" : agentInfo.avatar}
-                </AvatarFallback>
+                {message.sender === "user" ? (
+                  <AvatarFallback className="text-sm">
+                    {userAvatarLabel}
+                  </AvatarFallback>
+                ) : avatarIsImage ? (
+                  <AvatarImage src={agent.avatar} alt={agent.name} />
+                ) : (
+                  <AvatarFallback className="text-sm">
+                    {agentAvatarLabel}
+                  </AvatarFallback>
+                )}
               </Avatar>
 
-              <div className={`space-y-1 ${message.sender === "user" ? "items-end" : "items-start"} flex flex-col`}>
+              <div
+                className={`space-y-1 ${
+                  message.sender === "user" ? "items-end" : "items-start"
+                } flex flex-col`}
+              >
                 <div
                   className={`px-4 py-3 rounded-2xl ${
-                    message.sender === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                    message.sender === "user"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
                   }`}
                 >
                   <p className="text-sm leading-relaxed">{message.content}</p>
                 </div>
-                <span className="text-xs text-muted-foreground">{formatTime(message.timestamp)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatTime(message.timestamp)}
+                </span>
               </div>
             </div>
           </div>
@@ -177,19 +536,25 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
           <div className="flex justify-start">
             <div className="flex gap-3 max-w-2xl">
               <Avatar className="w-8 h-8">
-                <AvatarFallback className="text-sm">{agentInfo.avatar}</AvatarFallback>
+                {avatarIsImage ? (
+                  <AvatarImage src={agent.avatar} alt={agent.name} />
+                ) : (
+                  <AvatarFallback className="text-sm">
+                    {agentAvatarLabel}
+                  </AvatarFallback>
+                )}
               </Avatar>
               <div className="bg-muted px-4 py-3 rounded-2xl">
                 <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
                   <div
                     className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
                     style={{ animationDelay: "0.1s" }}
-                  ></div>
+                  />
                   <div
                     className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
                     style={{ animationDelay: "0.2s" }}
-                  ></div>
+                  />
                 </div>
               </div>
             </div>
@@ -199,10 +564,14 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <div className="border-t border-border bg-card px-6 py-4">
         <div className="flex items-end gap-3">
-          <Button variant="ghost" size="sm" className="flex-shrink-0">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex-shrink-0"
+            disabled={!canSendMessages}
+          >
             <Paperclip className="w-4 h-4" />
           </Button>
 
@@ -210,22 +579,33 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
             <Input
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={(event) => setInputValue(event.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Message Research Assistant Pro..."
+              placeholder={`Message ${agent.name}...`}
               className="pr-12 py-3 text-sm resize-none min-h-[44px]"
+              disabled={!canSendMessages}
             />
             <Button
               variant="ghost"
               size="sm"
               className="absolute right-2 top-1/2 transform -translate-y-1/2"
-              onClick={isRecording ? () => setIsRecording(false) : () => setIsRecording(true)}
+              onClick={() => setIsRecording((prev) => !prev)}
+              disabled={!canSendMessages}
             >
-              {isRecording ? <Square className="w-4 h-4 text-red-500" /> : <Mic className="w-4 h-4" />}
+              {isRecording ? (
+                <Square className="w-4 h-4 text-red-500" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
             </Button>
           </div>
 
-          <Button onClick={handleSendMessage} disabled={!inputValue.trim()} size="sm" className="flex-shrink-0">
+          <Button
+            onClick={handleSendMessage}
+            disabled={!canSendMessages || !inputValue.trim()}
+            size="sm"
+            className="flex-shrink-0"
+          >
             <Send className="w-4 h-4" />
           </Button>
         </div>
@@ -238,20 +618,37 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
             </div>
             <div className="flex items-center gap-1">
               <Timer className="w-3 h-3" />
-              <span>Session expires in {agentInfo.timeRemaining}</span>
+              <span>
+                Session{" "}
+                {sessionActive && timeRemaining
+                  ? `expires in ${timeRemaining}`
+                  : "not active"}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="text-xs h-6 px-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs h-6 px-2"
+              onClick={handleExtendTime}
+              disabled={!canSendMessages}
+            >
               Extend Time
             </Button>
-            <Button variant="ghost" size="sm" className="text-xs h-6 px-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-xs h-6 px-2"
+              onClick={handleEndSession}
+              disabled={!canSendMessages}
+            >
               End Session
             </Button>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

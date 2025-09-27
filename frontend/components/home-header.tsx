@@ -1,13 +1,78 @@
+"use client";
+
+import { useCallback, useMemo } from "react";
 import Link from "next/link";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { useWeb3 } from "@/hooks/use-web3";
+import { useToast } from "@/hooks/use-toast";
+import { SUPPORTED_CHAIN_IDS } from "@/lib/contracts";
 
 type HomeHeaderProps = {
   variant?: "default" | "landing";
 };
 
 export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
+  const { address, connect, disconnect, isConnecting, chainId } = useWeb3();
+  const { toast } = useToast();
+
+  const isUnsupportedChain = useMemo(() => {
+    return chainId !== null && !SUPPORTED_CHAIN_IDS.includes(chainId);
+  }, [chainId]);
+
+  const handleConnect = useCallback(async () => {
+    try {
+      await connect();
+    } catch (error) {
+      console.error("Wallet connection failed", error);
+      toast({
+        title: "Unable to connect",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please ensure MetaMask is installed and unlocked.",
+        variant: "destructive",
+      });
+    }
+  }, [connect, toast]);
+
+  const handleDisconnect = useCallback(() => {
+    void disconnect()
+      .then(() => {
+        toast({
+          title: "Wallet disconnected",
+          description: "You can reconnect at any time to continue.",
+        });
+      })
+      .catch((error) => {
+        console.error("Wallet disconnect failed", error);
+        toast({
+          title: "Unable to disconnect",
+          description:
+            error instanceof Error
+              ? error.message
+              : "Something went wrong while disconnecting your wallet.",
+          variant: "destructive",
+        });
+      });
+  }, [disconnect, toast]);
+
+  const walletLabel = useMemo(() => {
+    if (!address) {
+      return "Connect Wallet";
+    }
+    return `${address.slice(0, 6)}…${address.slice(-4)}`;
+  }, [address]);
+
   return (
     <>
       <nav
@@ -26,7 +91,7 @@ export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
           )}
         >
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-sm">Æ</span>
+            <span className="text-primary-foreground font-bold text-sm">A</span>
           </div>
           <span
             className={cn(
@@ -51,15 +116,58 @@ export default function HomeHeader({ variant = "default" }: HomeHeaderProps) {
           >
             Create
           </Link>
-          <Button
-            variant="outline"
-            size="sm"
-            className={cn(variant === "landing" && "landing-header__cta")}
-          >
-            Connect Wallet
-          </Button>
+          {!address ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(variant === "landing" && "landing-header__cta")}
+              onClick={handleConnect}
+              disabled={isConnecting}
+            >
+              {isConnecting ? "Connecting…" : walletLabel}
+            </Button>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={cn(variant === "landing" && "landing-header__cta")}
+                >
+                  {walletLabel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel>Wallet</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(address);
+                    toast({
+                      title: "Address copied",
+                      description: "Wallet address copied to clipboard.",
+                    });
+                  }}
+                >
+                  Copy address
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onClick={handleDisconnect}
+                >
+                  Disconnect
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </nav>
+      {isUnsupportedChain && (
+        <div className="w-full bg-destructive/10 text-destructive text-center text-sm py-2">
+          Connected to unsupported network. Please switch to Hardhat localhost
+          (chain 31337).
+        </div>
+      )}
       <div className="h-20" aria-hidden />
     </>
   );
