@@ -1,37 +1,50 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { ArrowLeft } from "lucide-react"
-import Link from "next/link"
-import { DescriptionStep } from "@/components/create-steps/description-step"
-import { ContextStep } from "@/components/create-steps/context-step"
-import { ToolsStep } from "@/components/create-steps/tools-step"
-import { ReviewStep } from "@/components/create-steps/review-step"
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import HomeHeader from "@/components/home-header";
+import { DescriptionStep } from "@/components/create-steps/description-step";
+import { ContextStep } from "@/components/create-steps/context-step";
+import { ToolsStep } from "@/components/create-steps/tools-step";
+import { ReviewStep } from "@/components/create-steps/review-step";
 
 const steps = [
-  { id: 1, title: "Describe your agent's job", description: "Define what your agent should do" },
-  { id: 2, title: "What should your agent know?", description: "Add context and knowledge" },
-  { id: 3, title: "What tools will your agent need?", description: "Select capabilities and integrations" },
+  {
+    id: 1,
+    title: "Describe your agent's job",
+    description: "Define what your agent should do",
+  },
+  {
+    id: 2,
+    title: "What should your agent know?",
+    description: "Add context and knowledge",
+  },
+  {
+    id: 3,
+    title: "What tools will your agent need?",
+    description: "Select capabilities and integrations",
+  },
   { id: 4, title: "Review and deploy", description: "Finalize your agent" },
-]
+];
 
 export interface AgentData {
-  name: string
-  description: string
-  shortDescription: string
-  category: string
-  outputs: string[]
-  context: string
-  files: File[]
-  tools: string[]
-  hourlyRate: number
+  name: string;
+  description: string;
+  shortDescription: string;
+  category: string;
+  outputs: string[];
+  context: string;
+  files: File[];
+  tools: string[];
+  hourlyRate: number;
 }
 
 export default function CreateAgentPage() {
-  const [currentStep, setCurrentStep] = useState(1)
+  const [currentStep, setCurrentStep] = useState(1);
   const [agentData, setAgentData] = useState<AgentData>({
     name: "",
     description: "",
@@ -42,66 +55,62 @@ export default function CreateAgentPage() {
     files: [],
     tools: [],
     hourlyRate: 0.05,
-  })
+  });
 
-  const progress = (currentStep / steps.length) * 100
+  const progress = (currentStep / steps.length) * 100;
 
   const handleNext = () => {
     if (currentStep < steps.length) {
-      setCurrentStep(currentStep + 1)
+      setCurrentStep(currentStep + 1);
     }
-  }
+  };
 
   const handleBack = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
+      setCurrentStep(currentStep - 1);
     }
-  }
+  };
 
   const updateAgentData = (updates: Partial<AgentData>) => {
-    setAgentData((prev) => ({ ...prev, ...updates }))
-  }
+    setAgentData((prev) => ({ ...prev, ...updates }));
+  };
 
   const renderStep = () => {
     switch (currentStep) {
       case 1:
-        return <DescriptionStep data={agentData} onUpdate={updateAgentData} onNext={handleNext} />
+        return (
+          <DescriptionStep
+            data={agentData}
+            onUpdate={updateAgentData}
+            onNext={handleNext}
+          />
+        );
       case 2:
-        return <ContextStep data={agentData} onUpdate={updateAgentData} onNext={handleNext} />
+        return (
+          <ContextStep
+            data={agentData}
+            onUpdate={updateAgentData}
+            onNext={handleNext}
+          />
+        );
       case 3:
-        return <ToolsStep data={agentData} onUpdate={updateAgentData} onNext={handleNext} />
+        return (
+          <ToolsStep
+            data={agentData}
+            onUpdate={updateAgentData}
+            onNext={handleNext}
+          />
+        );
       case 4:
-        return <ReviewStep data={agentData} onUpdate={updateAgentData} />
+        return <ReviewStep data={agentData} onUpdate={updateAgentData} />;
       default:
-        return null
+        return null;
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center space-x-2">
-          <Link href="/" className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">Æ</span>
-            </div>
-            <span className="text-xl font-bold text-foreground">Aegis Protocol</span>
-          </Link>
-        </div>
-
-        <div className="flex items-center space-x-6">
-          <Link href="/marketplace" className="text-muted-foreground hover:text-foreground transition-colors">
-            Marketplace
-          </Link>
-          <Link href="/create" className="text-foreground font-medium">
-            Create
-          </Link>
-          <Button variant="outline" size="sm">
-            Connect Wallet
-          </Button>
-        </div>
-      </nav>
+      <HomeHeader />
 
       <div className="container mx-auto px-6 py-8 max-w-7xl">
         <div className="max-w-6xl mx-auto">
@@ -115,8 +124,12 @@ export default function CreateAgentPage() {
             </Button>
 
             <div className="mb-6">
-              <h1 className="text-3xl font-bold text-foreground mb-2">{steps[currentStep - 1].title}</h1>
-              <p className="text-muted-foreground text-lg">{steps[currentStep - 1].description}</p>
+              <h1 className="text-3xl font-bold text-foreground mb-2">
+                {steps[currentStep - 1].title}
+              </h1>
+              <p className="text-muted-foreground text-lg">
+                {steps[currentStep - 1].description}
+              </p>
             </div>
 
             {/* Progress */}
@@ -167,5 +180,5 @@ export default function CreateAgentPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

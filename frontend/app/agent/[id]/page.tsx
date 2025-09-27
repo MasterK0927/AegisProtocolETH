@@ -1,15 +1,22 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Star, TrendingUp, Clock, Users, Zap, ArrowLeft } from "lucide-react"
-import Link from "next/link"
-import { useState } from "react"
-import { RentalModal } from "@/components/rental-modal"
-import { UsageChart } from "@/components/usage-chart"
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Star, TrendingUp, Clock, Users, Zap, ArrowLeft } from "lucide-react";
+import Link from "next/link";
+import { useState } from "react";
+import HomeHeader from "@/components/home-header";
+import { RentalModal } from "@/components/rental-modal";
+import { UsageChart } from "@/components/usage-chart";
 
 // Mock data - in real app this would come from API
 const agentData = {
@@ -51,41 +58,19 @@ const agentData = {
       { date: "2024-01-07", rentals: 63 },
     ],
   },
-}
+};
 
 export default function AgentPage({ params }: { params: { id: string } }) {
-  const [showRentalModal, setShowRentalModal] = useState(false)
-  const agent = agentData[Number.parseInt(params.id) as keyof typeof agentData]
+  const [showRentalModal, setShowRentalModal] = useState(false);
+  const agent = agentData[Number.parseInt(params.id) as keyof typeof agentData];
 
   if (!agent) {
-    return <div>Agent not found</div>
+    return <div>Agent not found</div>;
   }
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Navigation */}
-      <nav className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center space-x-2">
-          <Link href="/" className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">Æ</span>
-            </div>
-            <span className="text-xl font-bold text-foreground">Aegis Protocol</span>
-          </Link>
-        </div>
-
-        <div className="flex items-center space-x-6">
-          <Link href="/marketplace" className="text-foreground font-medium">
-            Marketplace
-          </Link>
-          <Link href="/create" className="text-muted-foreground hover:text-foreground transition-colors">
-            Create
-          </Link>
-          <Button variant="outline" size="sm">
-            Connect Wallet
-          </Button>
-        </div>
-      </nav>
+      <HomeHeader />
 
       <div className="container mx-auto px-6 py-8 max-w-7xl">
         {/* Back Button */}
@@ -109,19 +94,27 @@ export default function AgentPage({ params }: { params: { id: string } }) {
                       <CardTitle className="text-3xl">{agent.name}</CardTitle>
                       <Badge variant="secondary">{agent.category}</Badge>
                     </div>
-                    <CardDescription className="text-base mb-4">{agent.description}</CardDescription>
+                    <CardDescription className="text-base mb-4">
+                      {agent.description}
+                    </CardDescription>
 
                     <div className="flex items-center gap-4 text-sm">
                       <div className="flex items-center gap-1">
                         <Avatar className="w-6 h-6">
-                          <AvatarFallback className="text-xs">SC</AvatarFallback>
+                          <AvatarFallback className="text-xs">
+                            SC
+                          </AvatarFallback>
                         </Avatar>
-                        <span className="text-muted-foreground">Created by {agent.creatorName}</span>
+                        <span className="text-muted-foreground">
+                          Created by {agent.creatorName}
+                        </span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                         <span className="font-medium">{agent.rating}</span>
-                        <span className="text-muted-foreground">({agent.reviews} reviews)</span>
+                        <span className="text-muted-foreground">
+                          ({agent.reviews} reviews)
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -137,7 +130,9 @@ export default function AgentPage({ params }: { params: { id: string } }) {
                       <TrendingUp className="w-4 h-4" />
                       Downloads last month
                     </CardTitle>
-                    <div className="text-2xl font-bold text-primary mt-1">4,752</div>
+                    <div className="text-2xl font-bold text-primary mt-1">
+                      4,752
+                    </div>
                   </div>
                   <div className="w-32 h-16">
                     <UsageChart data={agent.usageData} compact />
@@ -157,7 +152,10 @@ export default function AgentPage({ params }: { params: { id: string } }) {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {agent.capabilities.map((capability, index) => (
-                    <div key={index} className="flex items-center gap-2 p-3 bg-muted rounded-lg">
+                    <div
+                      key={index}
+                      className="flex items-center gap-2 p-3 bg-muted rounded-lg"
+                    >
                       <div className="w-2 h-2 bg-primary rounded-full"></div>
                       <span className="text-sm">{capability}</span>
                     </div>
@@ -173,7 +171,10 @@ export default function AgentPage({ params }: { params: { id: string } }) {
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {agent.tools.map((tool, index) => (
-                    <div key={index} className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+                    <div
+                      key={index}
+                      className="flex items-center gap-3 p-3 bg-muted rounded-lg"
+                    >
                       <div className="text-2xl">{tool.icon}</div>
                       <span className="text-sm font-medium">{tool.name}</span>
                     </div>
@@ -192,7 +193,9 @@ export default function AgentPage({ params }: { params: { id: string } }) {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-center">
-                  <div className="text-4xl font-bold text-foreground">{agent.hourlyRate}</div>
+                  <div className="text-4xl font-bold text-foreground">
+                    {agent.hourlyRate}
+                  </div>
                   <div className="text-muted-foreground">ETH per hour</div>
                 </div>
 
@@ -200,11 +203,15 @@ export default function AgentPage({ params }: { params: { id: string } }) {
 
                 <div className="space-y-3 text-sm">
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Minimum rental:</span>
+                    <span className="text-muted-foreground">
+                      Minimum rental:
+                    </span>
                     <span className="font-medium">1 hour</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">Response time:</span>
+                    <span className="text-muted-foreground">
+                      Response time:
+                    </span>
                     <span className="font-medium">&lt; 30 seconds</span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -213,7 +220,11 @@ export default function AgentPage({ params }: { params: { id: string } }) {
                   </div>
                 </div>
 
-                <Button className="w-full" size="lg" onClick={() => setShowRentalModal(true)}>
+                <Button
+                  className="w-full"
+                  size="lg"
+                  onClick={() => setShowRentalModal(true)}
+                >
                   <Clock className="w-4 h-4 mr-2" />
                   Rent Now
                 </Button>
@@ -237,12 +248,14 @@ export default function AgentPage({ params }: { params: { id: string } }) {
                   </Avatar>
                   <div>
                     <div className="font-medium">{agent.creatorName}</div>
-                    <div className="text-sm text-muted-foreground">{agent.creator}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {agent.creator}
+                    </div>
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  AI researcher and developer with 10+ years of experience in machine learning and natural language
-                  processing.
+                  AI researcher and developer with 10+ years of experience in
+                  machine learning and natural language processing.
                 </p>
               </CardContent>
             </Card>
@@ -250,7 +263,11 @@ export default function AgentPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      <RentalModal isOpen={showRentalModal} onClose={() => setShowRentalModal(false)} agent={agent} />
+      <RentalModal
+        isOpen={showRentalModal}
+        onClose={() => setShowRentalModal(false)}
+        agent={agent}
+      />
     </div>
-  )
+  );
 }

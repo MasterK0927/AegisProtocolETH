@@ -1,51 +1,41 @@
-import Link from "next/link";
-
-import { Button } from "@/components/ui/button";
-
 export default function HomeHero() {
   return (
-    <main className="relative z-10 flex items-end min-h-[calc(100vh-80px)] px-6 pb-24">
-      <div className="max-w-2xl space-y-8">
-        <div className="space-y-2">
-          <div className="text-sm text-primary font-medium tracking-wide uppercase">
-            ✨ New AI Agent Experience
-          </div>
-          <h1 className="text-6xl md:text-7xl font-bold text-balance leading-tight">
-            Beautiful AI Agent
-            <br />
-            <span className="text-primary">Experiences</span>
-          </h1>
+    <main className="absolute bottom-8 left-8 z-20 max-w-lg">
+      <div className="text-left">
+        <div
+          className="inline-flex items-center px-3 py-1 rounded-full bg-white/5 backdrop-blur-sm mb-4 relative"
+          style={{
+            filter: "url(#glass-effect)",
+          }}
+        >
+          <div className="absolute top-0 left-1 right-1 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full" />
+          <span className="text-white/90 text-xs font-light relative z-10">
+            ✨ New Paper Shaders Experience
+          </span>
         </div>
 
-        <p className="text-xl text-muted-foreground max-w-lg text-pretty leading-relaxed">
-          Create stunning AI agents with our advanced blockchain technology.
-          Interactive ownership, seamless rentals, and beautiful experiences
-          that respond to your every need.
+        <h1 className="text-5xl md:text-6xl md:leading-16 tracking-tight font-light text-white mb-4">
+          <span className="font-medium italic instrument">Beautiful</span>{" "}
+          Shader
+          <br />
+          <span className="font-light tracking-tight text-white">
+            Experiences
+          </span>
+        </h1>
+
+        <p className="text-xs font-light text-white/70 mb-4 leading-relaxed">
+          Create stunning visual experiences with our advanced shader
+          technology. Interactive lighting, smooth animations, and beautiful
+          effects that respond to your every move.
         </p>
 
-        <div className="flex gap-4 pt-4">
-          <Button
-            asChild
-            size="lg"
-            className="text-lg px-8 py-6 bg-primary hover:bg-primary/90"
-          >
-            <Link href="/marketplace">Explore AI</Link>
-          </Button>
-
-          <Button
-            asChild
-            variant="outline"
-            size="lg"
-            className="text-lg px-8 py-6 bg-background/50 backdrop-blur-sm border-primary/20 hover:bg-primary/10"
-          >
-            <Link href="/create">Get Started</Link>
-          </Button>
-        </div>
-      </div>
-
-      <div className="absolute bottom-8 right-8 w-24 h-24 rounded-full border-2 border-primary/20 flex items-center justify-center">
-        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center">
-          <div className="w-8 h-8 rounded-full bg-primary animate-pulse" />
+        <div className="flex items-center gap-4 flex-wrap">
+          <button className="px-8 py-3 rounded-full bg-transparent border border-white/30 text-white font-normal text-xs transition-all duration-200 hover:bg-white/10 hover:border-white/50 cursor-pointer">
+            Pricing
+          </button>
+          <button className="px-8 py-3 rounded-full bg-white text-black font-normal text-xs transition-all duration-200 hover:bg-white/90 cursor-pointer">
+            Get Started
+          </button>
         </div>
       </div>
     </main>
