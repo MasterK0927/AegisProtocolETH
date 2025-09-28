@@ -6,6 +6,6 @@
     "RentalContract": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
   },
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "timestamp": "2025-09-27T23:47:40.089Z",
+  "timestamp": "2025-09-28T04:45:26.529Z",
   "notes": "Micropayments handled off-chain via x402 facilitator"
 }

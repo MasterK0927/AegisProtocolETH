@@ -149,7 +149,7 @@ export async function POST(request: NextRequest) {
     };
 
     await saveOrder(order);
-
+    
     const client = getX402Client();
 
     if (!client.isConfigured()) {

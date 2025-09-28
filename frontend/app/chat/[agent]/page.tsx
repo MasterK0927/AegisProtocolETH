@@ -108,17 +108,47 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     refresh: refreshPayments,
   } = payments;
 
-  const llmConfig = useMemo(() => {
-    const aegis = agent?.metadata?.aegis as
-      | { llmConfig?: { provider?: string; model?: string } }
+  const aegisMetadata = useMemo(() => {
+    return (agent?.metadata?.aegis ?? undefined) as
+      | {
+          llmConfig?: {
+            provider?: string;
+            model?: string;
+            temperature?: number;
+            maxTokens?: number;
+          };
+          instructions?: unknown;
+        }
       | undefined;
-    return aegis?.llmConfig;
   }, [agent]);
+
+  const llmConfig = useMemo(() => aegisMetadata?.llmConfig, [aegisMetadata]);
 
   const llmProvider = useMemo(
     () => getLLMProvider(llmConfig?.provider ?? ""),
     [llmConfig?.provider]
   );
+
+  const agentPersona = useMemo(() => {
+    if (!agent) {
+      return undefined;
+    }
+
+    const instructions =
+      typeof aegisMetadata?.instructions === "string"
+        ? aegisMetadata.instructions
+        : undefined;
+
+    return {
+      name: agent.name,
+      category: agent.category,
+      shortDescription: agent.shortDescription,
+      description: agent.description,
+      capabilities: agent.capabilities,
+      tools: agent.tools,
+      instructions,
+    } as const;
+  }, [agent, aegisMetadata]);
 
   const toolRequirements = useMemo<ToolRequirement[]>(() => {
     if (!agent) {
@@ -389,13 +419,13 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     address && sessionActive && userIsRenter && credentialsReady
   );
 
-  const handleSendMessage = useCallback(() => {
-    if (!agent) {
+  const handleSendMessage = useCallback(async () => {
+    if (!agent || !agentPersona) {
       return;
     }
 
     const trimmed = inputValue.trim();
-    if (!trimmed) {
+    if (!trimmed || isTyping) {
       return;
     }
 
@@ -434,36 +464,118 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
       return;
     }
 
+    const llmCredentials = credentials.llm;
+    const providerId = llmCredentials?.provider ?? llmProvider?.id ?? "";
+
+    if (!providerId || !llmCredentials?.apiKey) {
+      toast({
+        title: "Missing LLM credentials",
+        description: "Provide a valid API key to continue chatting.",
+        variant: "destructive",
+      });
+      if (credentialsLoaded) {
+        setIsApiKeyModalOpen(true);
+      }
+      return;
+    }
+
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: crypto.randomUUID?.() ?? Date.now().toString(),
       content: trimmed,
       sender: "user",
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const optimisticMessages = [...messages, userMessage];
+    setMessages(optimisticMessages);
     setInputValue("");
     setIsTyping(true);
+    inputRef.current?.focus();
 
-    setTimeout(() => {
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          agent: agentPersona,
+          messages: optimisticMessages.map((message) => ({
+            role: message.sender === "agent" ? "assistant" : "user",
+            content: message.content,
+          })),
+          credentials: {
+            provider: providerId,
+            apiKey: llmCredentials.apiKey,
+            model: llmCredentials.model ?? llmConfig?.model ?? undefined,
+            temperature: llmConfig?.temperature,
+            maxTokens: llmConfig?.maxTokens,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        const errorMessage =
+          errorPayload?.error ??
+          `Request failed with status ${response.status}`;
+        throw new Error(errorMessage);
+      }
+
+      const data = (await response.json()) as { reply?: string };
+      const reply = data.reply?.trim();
+
+      if (!reply) {
+        throw new Error("No response received from the agent.");
+      }
+
       const agentMessage: Message = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        content: `I'll look into that for you. ${
-          agent.name
-        } specializes in ${agent.category.toLowerCase()} tasks and will provide an update shortly.`,
+        id: crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`,
+        content: reply,
         sender: "agent",
         timestamp: new Date(),
       };
+
       setMessages((prev) => [...prev, agentMessage]);
+    } catch (err) {
+      console.error("Failed to send chat message", err);
+
+      const description =
+        err instanceof Error
+          ? err.message
+          : "Unexpected error communicating with the agent.";
+
+      toast({
+        title: "Chat failed",
+        description,
+        variant: "destructive",
+      });
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `error-${Date.now()}`,
+          content: `I'm having trouble reaching my LLM right now: ${description}`,
+          sender: "agent",
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   }, [
     address,
     agent,
+    agentPersona,
     credentialSummary,
+    credentials,
     credentialsLoaded,
     credentialsReady,
     inputValue,
+    isTyping,
+    llmConfig,
+    llmProvider,
+    messages,
     sessionActive,
     toast,
     userIsRenter,
@@ -472,7 +584,7 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      handleSendMessage();
+      void handleSendMessage();
     }
   };
 
