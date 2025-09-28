@@ -68,10 +68,10 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
       return;
     }
 
-    if (!data.llmConfig.provider || !data.llmConfig.model || !data.llmConfig.apiKey) {
+    if (!data.llmConfig.provider || !data.llmConfig.model) {
       toast({
         title: "LLM configuration incomplete",
-        description: "Please configure your AI model and provide an API key.",
+        description: "Please configure your AI model before deploying.",
         variant: "destructive",
       });
       return;
@@ -126,7 +126,6 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
           llmConfig: {
             provider: data.llmConfig.provider,
             model: data.llmConfig.model,
-            // Note: API key is intentionally excluded from metadata for security
             temperature: data.llmConfig.temperature,
             maxTokens: data.llmConfig.maxTokens,
           },
@@ -284,10 +283,14 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
               </p>
             </div>
           </div>
-          <div>
-            <Label className="text-sm font-medium">API Key</Label>
-            <p className="text-sm text-muted-foreground mt-1">
-              {data.llmConfig.apiKey ? "••••••••••••••••" : "Not provided"}
+          <div className="p-4 bg-muted/50 rounded-lg text-sm text-muted-foreground">
+            <p className="font-medium text-foreground mb-1">
+              API keys supplied by renters
+            </p>
+            <p>
+              When someone rents this agent they&apos;ll be prompted to connect
+              their own API keys for the selected LLM and tools. Nothing
+              sensitive is stored during creation.
             </p>
           </div>
         </CardContent>
@@ -335,13 +338,21 @@ export function ReviewStep({ data, onUpdate }: ReviewStepProps) {
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {data.tools.map((toolId) => {
-              const tool = realTools.find(t => t.id === toolId);
+              const tool = realTools.find((t) => t.id === toolId);
               return (
-                <Badge key={toolId} variant="outline" className="flex items-center gap-1">
+                <Badge
+                  key={toolId}
+                  variant="outline"
+                  className="flex items-center gap-1"
+                >
                   <span>{tool?.icon}</span>
                   {tool?.name || toolId}
-                  {tool?.type === 'api' && <span className="text-xs opacity-70">(API)</span>}
-                  {tool?.type === 'mcp' && <span className="text-xs opacity-70">(MCP)</span>}
+                  {tool?.type === "api" && (
+                    <span className="text-xs opacity-70">(API)</span>
+                  )}
+                  {tool?.type === "mcp" && (
+                    <span className="text-xs opacity-70">(MCP)</span>
+                  )}
                 </Badge>
               );
             })}

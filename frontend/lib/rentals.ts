@@ -5,7 +5,6 @@ import {
   Contract,
   JsonRpcProvider,
   JsonRpcSigner,
-  parseEther,
   type EventLog,
   type Result,
 } from "ethers";
@@ -219,24 +218,137 @@ export async function isRentalActive(
   return contract.isRentalActive(tokenId, renter);
 }
 
-export async function getCreditBalance(address: string, options: ReadOptions) {
-  const provider = resolveProvider(options.provider);
-  const { address: contractAddress, abi } = getContractConfig(
-    options.chainId,
-    "X402CreditContract"
-  );
-  const contract = new Contract(contractAddress, abi, provider);
-  const balance: bigint = await contract.creditBalances(address);
-  return balance;
+const gatewayBaseUrl =
+  process.env.NEXT_PUBLIC_X402_GATEWAY_URL?.trim() ||
+  process.env.NEXT_PUBLIC_THIRDWEB_FACILITATOR_BASE_URL?.trim() ||
+  "";
+
+function ensureGatewayConfigured() {
+  if (!gatewayBaseUrl) {
+    throw new Error(
+      "X402 gateway URL not configured. Set NEXT_PUBLIC_X402_GATEWAY_URL to the facilitator endpoint."
+    );
+  }
+  return gatewayBaseUrl.replace(/\/$/, "");
 }
 
+type GatewayCreditBalanceResponse = {
+  balance?: string | number | bigint;
+  credits?: string | number | bigint;
+  creditBalance?: string | number | bigint;
+  data?: {
+    balance?: string | number | bigint;
+    credits?: string | number | bigint;
+  };
+};
+
+function normalizeCredits(value: unknown): bigint {
+  if (typeof value === "bigint") {
+    return value;
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new Error("Invalid credit balance returned by gateway");
+    }
+    return BigInt(Math.floor(value));
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      throw new Error("Empty credit balance returned by gateway");
+    }
+    const integral = trimmed.includes(".")
+      ? trimmed.slice(0, trimmed.indexOf("."))
+      : trimmed;
+    if (!integral) {
+      return 0n;
+    }
+    return BigInt(integral);
+  }
+  throw new Error("Unsupported credit balance format returned by gateway");
+}
+
+function extractCredits(payload: GatewayCreditBalanceResponse): bigint {
+  const candidate =
+    payload.balance ??
+    payload.credits ??
+    payload.creditBalance ??
+    payload.data?.balance ??
+    payload.data?.credits;
+  if (candidate == null) {
+    throw new Error("Gateway response did not include a credit balance");
+  }
+  return normalizeCredits(candidate);
+}
+
+export async function getCreditBalance(address: string): Promise<bigint> {
+  const baseUrl = ensureGatewayConfigured();
+  const url = `${baseUrl}/credits/balance?address=${encodeURIComponent(
+    address
+  )}`;
+  const response = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const message = await response
+      .json()
+      .catch(() => ({ message: response.statusText }));
+    throw new Error(
+      `Failed to load credits from gateway: ${
+        message?.message || response.statusText
+      }`
+    );
+  }
+
+  const payload = (await response.json()) as GatewayCreditBalanceResponse;
+  return extractCredits(payload);
+}
+
+export type CreditPurchaseRequest = {
+  address: string;
+  credits: number;
+  agentId?: number;
+  reference?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type CreditPurchaseResponse = {
+  requestId?: string;
+  status?: string;
+  credits?: number;
+  balance?: number;
+  message?: string;
+  [key: string]: unknown;
+};
+
 export async function purchaseCredits(
-  amountEth: string,
-  { signer, chainId }: WriteOptions
-) {
-  const { address, abi } = getContractConfig(chainId, "X402CreditContract");
-  const contract = new Contract(address, abi, signer);
-  const payment = parseEther(amountEth);
-  const tx = await contract.purchaseCredits({ value: payment });
-  return tx.wait();
+  payload: CreditPurchaseRequest
+): Promise<CreditPurchaseResponse> {
+  const baseUrl = ensureGatewayConfigured();
+  const response = await fetch(`${baseUrl}/credits/purchase`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await response
+      .json()
+      .catch(() => ({ message: response.statusText }));
+    throw new Error(
+      `Failed to purchase credits via gateway: ${
+        message?.message || response.statusText
+      }`
+    );
+  }
+
+  return (await response.json()) as CreditPurchaseResponse;
 }

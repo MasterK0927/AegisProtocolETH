@@ -345,7 +345,7 @@ export default function DashboardPage() {
       } catch (err) {
         console.error("Failed to load dashboard data:", err);
         setError(
-          "Failed to load dashboard data. Please ensure you're connected to the network."
+          "Failed to load dashboard data. Please ensure you’re connected to the network."
         );
       } finally {
         setIsLoading(false);
@@ -671,7 +671,7 @@ export default function DashboardPage() {
 
           <TabsContent value="rented-agents" className="space-y-6">
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Agents You're Renting</h2>
+              <h2 className="text-xl font-semibold">Agents You’re Renting</h2>
               <Button variant="outline" asChild>
                 <Link href="/marketplace">
                   <ExternalLink className="w-4 h-4 mr-2" />

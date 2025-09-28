@@ -9,13 +9,12 @@ Aegis Protocol is a decentralized "AI Agents as a Service" (AaaS) platform built
 
 ## 🏗️ Architecture
 
-The protocol consists of three main smart contracts deployed on Polygon:
+The protocol deploys two primary smart contracts on Polygon:
 
 1. **AgentNFT (ERC-721)**: Represents ownership of AI agents
-2. **RentalContract**: Manages agent rental logic and payments
-3. **X402CreditContract**: Handles pre-paid credits for AI inference
+2. **RentalContract**: Manages agent rental logic and on-chain rental payments
 
-All state is managed on-chain for maximum decentralization and transparency.
+Pre-paid x402 credits are now administered by an off-chain facilitator gateway. The `X402CreditContract` remains in the repository as a deprecated stub to prevent accidental deployment while backwards compatibility is phased out.
 
 ## 📋 Prerequisites
 
@@ -48,6 +47,7 @@ cp .env.example .env
 ```
 
 Edit `.env` with your configuration:
+
 ```env
 # Network RPC URLs
 POLYGON_AMOY_RPC_URL=https://rpc-amoy.polygon.technology
@@ -73,14 +73,14 @@ npm test
 ```
 
 All tests should pass with output similar to:
-```
+
+```text
   Aegis Protocol
     ✓ AgentNFT tests (4 passing)
     ✓ RentalContract tests (6 passing)
-    ✓ X402CreditContract tests (9 passing)
     ✓ End-to-End Flow (1 passing)
 
-  20 passing (681ms)
+  11 passing (~0.4s)
 ```
 
 ## 🌐 Deployment
@@ -88,11 +88,13 @@ All tests should pass with output similar to:
 ### Local Network (Hardhat)
 
 1. Start a local Hardhat node:
+
 ```bash
 npm run node
 ```
 
 2. In a new terminal, deploy contracts:
+
 ```bash
 npm run deploy:local
 ```
@@ -102,6 +104,7 @@ npm run deploy:local
 1. Get test MATIC from [Polygon Faucet](https://faucet.polygon.technology/)
 
 2. Deploy to Amoy:
+
 ```bash
 npm run deploy:amoy
 ```
@@ -123,6 +126,7 @@ npx hardhat verify --network <network> <CONTRACT_ADDRESS> [constructor args]
 ```
 
 Example:
+
 ```bash
 npx hardhat verify --network amoy 0x123... 
 npx hardhat verify --network amoy 0x456... "0x123..."
@@ -134,33 +138,24 @@ npx hardhat verify --network amoy 0x789... "1000000000000000"
 Use the provided interaction scripts to work with deployed contracts:
 
 ### Mint an Agent NFT
+
 ```bash
 npx hardhat run scripts/interact.ts --network localhost -- mint <creator_address> <token_uri>
 ```
 
 ### Set Rental Price
+
 ```bash
 npx hardhat run scripts/interact.ts --network localhost -- set-price <token_id> <price_per_second>
 ```
 
 ### Rent an Agent
+
 ```bash
 npx hardhat run scripts/interact.ts --network localhost -- rent <token_id> <duration_seconds>
 ```
 
-### Purchase Credits
-```bash
-npx hardhat run scripts/interact.ts --network localhost -- purchase-credits <amount_in_matic>
-```
-
-### Check Status
-```bash
-# Check rental status
-npx hardhat run scripts/interact.ts --network localhost -- check-rental <token_id> [user_address]
-
-# Check credit balance
-npx hardhat run scripts/interact.ts --network localhost -- check-credits [user_address]
-```
+> ℹ️ **Credits now off-chain:** Use the x402 facilitator REST gateway to purchase or inspect inference credits. See the `frontend/lib/rentals.ts` helpers for reference client calls.
 
 ## 📜 Smart Contract Documentation
 
@@ -169,6 +164,7 @@ npx hardhat run scripts/interact.ts --network localhost -- check-credits [user_a
 ERC-721 token representing AI agent ownership.
 
 **Key Functions:**
+
 - `mintAgent(address creator, string memory tokenURI)`: Mint a new agent NFT
 - Standard ERC-721 functions (transfer, approve, etc.)
 
@@ -177,42 +173,40 @@ ERC-721 token representing AI agent ownership.
 Manages agent rentals and payments.
 
 **Key Functions:**
+
 - `setRentalPrice(uint256 tokenId, uint256 pricePerSecond)`: Set rental price for an agent
 - `rent(uint256 tokenId, uint256 durationInSeconds)`: Rent an agent
 - `isRentalActive(uint256 tokenId, address user)`: Check if rental is active
 
-### X402CreditContract
+### X402CreditContract (deprecated)
 
-Pre-paid credit system for AI inference.
-
-**Key Functions:**
-- `purchaseCredits()`: Buy credits with MATIC
-- `spendCredits(address user, uint256 amount, bytes32 nonce)`: Spend user's credits (owner only)
-- `creditBalances(address)`: Check credit balance
-- `withdraw()`: Withdraw accumulated MATIC (owner only)
+This on-chain credit contract has been superseded by an off-chain facilitator. The Solidity file remains only as a revert-only placeholder to block unintended deployments while the new architecture rolls out.
 
 ## 🔄 End-to-End Flow
 
 1. **Creator deploys an agent**: Agent NFT is minted with metadata stored on IPFS
 2. **Creator sets rental terms**: Price per second is configured
 3. **User rents the agent**: Payment goes directly to creator
-4. **User purchases credits**: Pre-paid credits for AI inference
-5. **User interacts with agent**: Credits are spent per interaction
+4. **User purchases credits**: Off-chain via the x402 facilitator gateway
+5. **User interacts with agent**: Facilitator deducts credits per interaction
 6. **Rental expires**: After duration, rental becomes inactive
 
 ## 🧪 Testing
 
 Run the full test suite:
+
 ```bash
 npm test
 ```
 
 Run with coverage:
+
 ```bash
 npx hardhat coverage
 ```
 
 Run specific tests:
+
 ```bash
 npx hardhat test test/AegisProtocol.test.ts
 ```
@@ -220,6 +214,7 @@ npx hardhat test test/AegisProtocol.test.ts
 ## 📊 Gas Reports
 
 Enable gas reporting by setting in `hardhat.config.ts`:
+
 ```typescript
 gasReporter: {
   enabled: true,
@@ -229,6 +224,7 @@ gasReporter: {
 ```
 
 Then run tests:
+
 ```bash
 npm test
 ```
@@ -236,20 +232,21 @@ npm test
 ## 🔒 Security Considerations
 
 1. **Private Keys**: Never commit private keys. Use environment variables
-2. **Ownership**: X402CreditContract owner should be a secure multisig or verifier service
-3. **Nonces**: The system prevents replay attacks using nonces
+2. **Gateway Security**: Host the x402 facilitator behind authenticated infrastructure with rate limiting and monitoring
+3. **Nonces**: The legacy contract enforced nonce-based replay protection; retain similar safeguards in the facilitator
 4. **Payments**: All rental payments go directly to creators (no intermediary risk)
 5. **Audits**: Consider professional audits before mainnet deployment
 
 ## 🛠️ Development
 
 ### Project Structure
+
 ```
 AegisContracts/
 ├── contracts/          # Smart contracts
 │   ├── AgentNFT.sol
 │   ├── RentalContract.sol
-│   └── X402CreditContract.sol
+│   └── X402CreditContract.sol (deprecated placeholder)
 ├── scripts/           # Deployment and interaction scripts
 │   ├── deploy.ts
 │   └── interact.ts
@@ -260,6 +257,7 @@ AegisContracts/
 ```
 
 ### Common Commands
+
 ```bash
 npm run compile       # Compile contracts
 npm test             # Run tests
@@ -276,7 +274,7 @@ npm run clean        # Clean artifacts
 - ✅ **Gas Optimized**: Optimized for Polygon's low fees
 - ✅ **ERC-721 Compliant**: Standard NFT interface for agents
 - ✅ **Flexible Pricing**: Creators set their own rental rates
-- ✅ **Credit System**: Pre-paid credits for smooth UX
+- ✅ **Credit System**: Off-chain facilitator provides prepaid credits without extra gas
 
 ## 🤝 Contributing
 

@@ -3,11 +3,7 @@ import { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
-import {
-  AgentNFT,
-  RentalContract,
-  X402CreditContract,
-} from "../typechain-types";
+import { AgentNFT, RentalContract } from "../typechain-types";
 
 describe("Aegis Protocol", function () {
   // Fixture to deploy contracts
@@ -24,22 +20,13 @@ describe("Aegis Protocol", function () {
       await agentNFT.getAddress()
     );
 
-    // Deploy X402CreditContract with price of 0.001 MATIC per credit
-    const pricePerCredit = ethers.parseEther("0.001");
-    const X402CreditContract = await ethers.getContractFactory(
-      "X402CreditContract"
-    );
-    const x402CreditContract = await X402CreditContract.deploy(pricePerCredit);
-
     return {
       agentNFT,
       rentalContract,
-      x402CreditContract,
       owner,
       creator,
       renter,
       otherUser,
-      pricePerCredit,
     };
   }
 
@@ -235,185 +222,11 @@ describe("Aegis Protocol", function () {
     });
   });
 
-  describe("X402CreditContract", function () {
-    it("Should deploy with correct price per credit", async function () {
-      const { x402CreditContract, pricePerCredit } = await loadFixture(
-        deployAegisProtocolFixture
-      );
-      expect(await x402CreditContract.pricePerCredit()).to.equal(
-        pricePerCredit
-      );
-    });
-
-    it("Should allow purchasing credits", async function () {
-      const { x402CreditContract, renter, pricePerCredit } = await loadFixture(
-        deployAegisProtocolFixture
-      );
-
-      const creditsToBuy = 100n;
-      const payment = pricePerCredit * creditsToBuy;
-
-      await expect(
-        x402CreditContract.connect(renter).purchaseCredits({ value: payment })
-      )
-        .to.emit(x402CreditContract, "CreditsPurchased")
-        .withArgs(renter.address, creditsToBuy);
-
-      expect(await x402CreditContract.creditBalances(renter.address)).to.equal(
-        creditsToBuy
-      );
-    });
-
-    it("Should accumulate credits on multiple purchases", async function () {
-      const { x402CreditContract, renter, pricePerCredit } = await loadFixture(
-        deployAegisProtocolFixture
-      );
-
-      const firstPurchase = 50n;
-      const secondPurchase = 30n;
-
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * firstPurchase });
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * secondPurchase });
-
-      expect(await x402CreditContract.creditBalances(renter.address)).to.equal(
-        firstPurchase + secondPurchase
-      );
-    });
-
-    it("Should not purchase credits with insufficient payment", async function () {
-      const { x402CreditContract, renter } = await loadFixture(
-        deployAegisProtocolFixture
-      );
-
-      const tooSmallPayment = ethers.parseEther("0.0001"); // Less than one credit
-
-      await expect(
-        x402CreditContract
-          .connect(renter)
-          .purchaseCredits({ value: tooSmallPayment })
-      ).to.be.revertedWith("Payment too low to purchase any credits");
-    });
-
-    it("Should allow owner to spend user credits", async function () {
-      const { x402CreditContract, owner, renter, pricePerCredit } =
-        await loadFixture(deployAegisProtocolFixture);
-
-      // User buys credits
-      const creditsToBuy = 100n;
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * creditsToBuy });
-
-      // Owner spends credits
-      const creditsToSpend = 25n;
-      const nonce = ethers.randomBytes(32);
-
-      await expect(
-        x402CreditContract
-          .connect(owner)
-          .spendCredits(renter.address, creditsToSpend, nonce)
-      )
-        .to.emit(x402CreditContract, "CreditsSpent")
-        .withArgs(renter.address, owner.address, creditsToSpend);
-
-      expect(await x402CreditContract.creditBalances(renter.address)).to.equal(
-        creditsToBuy - creditsToSpend
-      );
-      expect(await x402CreditContract.usedNonces(nonce)).to.be.true;
-    });
-
-    it("Should prevent replay attacks with nonces", async function () {
-      const { x402CreditContract, owner, renter, pricePerCredit } =
-        await loadFixture(deployAegisProtocolFixture);
-
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * 100n });
-
-      const nonce = ethers.randomBytes(32);
-      await x402CreditContract
-        .connect(owner)
-        .spendCredits(renter.address, 10n, nonce);
-
-      // Try to use the same nonce again
-      await expect(
-        x402CreditContract
-          .connect(owner)
-          .spendCredits(renter.address, 10n, nonce)
-      ).to.be.revertedWith("X402: Nonce already used");
-    });
-
-    it("Should not allow non-owner to spend credits", async function () {
-      const { x402CreditContract, renter, otherUser, pricePerCredit } =
-        await loadFixture(deployAegisProtocolFixture);
-
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * 100n });
-
-      await expect(
-        x402CreditContract
-          .connect(otherUser)
-          .spendCredits(renter.address, 10n, ethers.randomBytes(32))
-      ).to.be.revertedWithCustomError(
-        x402CreditContract,
-        "OwnableUnauthorizedAccount"
-      );
-    });
-
-    it("Should not spend more credits than available", async function () {
-      const { x402CreditContract, owner, renter, pricePerCredit } =
-        await loadFixture(deployAegisProtocolFixture);
-
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: pricePerCredit * 50n });
-
-      await expect(
-        x402CreditContract
-          .connect(owner)
-          .spendCredits(renter.address, 100n, ethers.randomBytes(32))
-      ).to.be.revertedWith("X402: Insufficient credits");
-    });
-
-    it("Should allow owner to withdraw funds", async function () {
-      const { x402CreditContract, owner, renter, pricePerCredit } =
-        await loadFixture(deployAegisProtocolFixture);
-
-      const payment = pricePerCredit * 100n;
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: payment });
-
-      const ownerBalanceBefore = await ethers.provider.getBalance(
-        owner.address
-      );
-      const tx = await x402CreditContract.connect(owner).withdraw();
-      const receipt = await tx.wait();
-      const gasUsed = receipt!.gasUsed * receipt!.gasPrice;
-
-      const ownerBalanceAfter = await ethers.provider.getBalance(owner.address);
-      expect(ownerBalanceAfter).to.equal(
-        ownerBalanceBefore + payment - gasUsed
-      );
-    });
-  });
-
   describe("End-to-End Flow", function () {
     it("Should complete full user journey: mint, rent, purchase credits, and verify active rental", async function () {
-      const {
-        agentNFT,
-        rentalContract,
-        x402CreditContract,
-        owner,
-        creator,
-        renter,
-        pricePerCredit,
-      } = await loadFixture(deployAegisProtocolFixture);
+      const { agentNFT, rentalContract, creator, renter } = await loadFixture(
+        deployAegisProtocolFixture
+      );
 
       // Step 1: Creator gets an agent NFT minted
       const tokenURI = "ipfs://QmAgentData123";
@@ -433,33 +246,7 @@ describe("Aegis Protocol", function () {
         .connect(renter)
         .rent(tokenId, rentalDuration, { value: rentalPayment });
 
-      // Step 4: User purchases credits for inference
-      const creditsToBuy = 1000n;
-      const creditPayment = pricePerCredit * creditsToBuy;
-      await x402CreditContract
-        .connect(renter)
-        .purchaseCredits({ value: creditPayment });
-
-      // Step 5: Verify rental is active and user has credits
-      expect(await rentalContract.isRentalActive(tokenId, renter.address)).to.be
-        .true;
-      expect(await x402CreditContract.creditBalances(renter.address)).to.equal(
-        creditsToBuy
-      );
-
-      // Step 6: Simulate credit spending by owner (verifier)
-      const creditsPerChat = 100n;
-      const chatNonce = ethers.randomBytes(32);
-      await x402CreditContract
-        .connect(owner)
-        .spendCredits(renter.address, creditsPerChat, chatNonce);
-
-      // Verify credits were deducted
-      expect(await x402CreditContract.creditBalances(renter.address)).to.equal(
-        creditsToBuy - creditsPerChat
-      );
-
-      // Verify rental is still active
+      // Step 4: Verify rental is active (credits now managed off-chain)
       expect(await rentalContract.isRentalActive(tokenId, renter.address)).to.be
         .true;
 

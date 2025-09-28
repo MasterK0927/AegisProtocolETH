@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { ArrowRight, Eye, EyeOff, Info } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
 import type { AgentData } from "@/app/create/page";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,54 +27,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-
-const llmProviders = [
-  {
-    id: "openai",
-    name: "OpenAI",
-    models: [
-      { id: "gpt-4o", name: "GPT-4o", description: "Most capable model" },
-      { id: "gpt-4o-mini", name: "GPT-4o Mini", description: "Fast and efficient" },
-      { id: "gpt-4-turbo", name: "GPT-4 Turbo", description: "High performance" },
-      { id: "gpt-3.5-turbo", name: "GPT-3.5 Turbo", description: "Cost effective" },
-    ],
-    apiKeyUrl: "https://platform.openai.com/api-keys",
-    logo: "🤖",
-  },
-  {
-    id: "anthropic",
-    name: "Anthropic",
-    models: [
-      { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", description: "Most intelligent model" },
-      { id: "claude-3-5-haiku-20241022", name: "Claude 3.5 Haiku", description: "Fast and lightweight" },
-      { id: "claude-3-opus-20240229", name: "Claude 3 Opus", description: "Most powerful model" },
-    ],
-    apiKeyUrl: "https://console.anthropic.com/settings/keys",
-    logo: "🧠",
-  },
-  {
-    id: "google",
-    name: "Google",
-    models: [
-      { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro", description: "Advanced reasoning" },
-      { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash", description: "Fast responses" },
-      { id: "gemini-pro", name: "Gemini Pro", description: "Balanced performance" },
-    ],
-    apiKeyUrl: "https://makersuite.google.com/app/apikey",
-    logo: "🔍",
-  },
-  {
-    id: "mistral",
-    name: "Mistral AI",
-    models: [
-      { id: "mistral-large-latest", name: "Mistral Large", description: "Most capable" },
-      { id: "mistral-medium-latest", name: "Mistral Medium", description: "Balanced" },
-      { id: "mistral-small-latest", name: "Mistral Small", description: "Efficient" },
-    ],
-    apiKeyUrl: "https://console.mistral.ai/api-keys/",
-    logo: "🌪️",
-  },
-];
+import { LLM_PROVIDERS, getLLMProvider } from "@/lib/llms";
 
 interface LLMStepProps {
   data: AgentData;
@@ -84,23 +36,18 @@ interface LLMStepProps {
 }
 
 export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
-  const [showApiKey, setShowApiKey] = useState(false);
-
-  const selectedProvider = llmProviders.find(
-    (p) => p.id === data.llmConfig.provider
-  );
+  const selectedProvider = getLLMProvider(data.llmConfig.provider);
   const selectedModel = selectedProvider?.models.find(
     (m) => m.id === data.llmConfig.model
   );
 
   const handleProviderChange = (providerId: string) => {
-    const provider = llmProviders.find((p) => p.id === providerId);
+    const provider = getLLMProvider(providerId);
     onUpdate({
       llmConfig: {
         ...data.llmConfig,
         provider: providerId,
         model: provider?.models[0]?.id || "",
-        apiKey: "",
       },
     });
   };
@@ -110,15 +57,6 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
       llmConfig: {
         ...data.llmConfig,
         model: modelId,
-      },
-    });
-  };
-
-  const handleApiKeyChange = (apiKey: string) => {
-    onUpdate({
-      llmConfig: {
-        ...data.llmConfig,
-        apiKey,
       },
     });
   };
@@ -141,10 +79,7 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
     });
   };
 
-  const canProceed =
-    data.llmConfig.provider &&
-    data.llmConfig.model &&
-    data.llmConfig.apiKey.trim();
+  const canProceed = data.llmConfig.provider && data.llmConfig.model;
 
   return (
     <Card>
@@ -159,7 +94,7 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
         <div className="space-y-3">
           <Label>LLM Provider</Label>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {llmProviders.map((provider) => (
+            {LLM_PROVIDERS.map((provider) => (
               <Card
                 key={provider.id}
                 className={`cursor-pointer transition-colors hover:bg-muted/50 ${
@@ -192,7 +127,10 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
         {selectedProvider && (
           <div className="space-y-3">
             <Label>Model</Label>
-            <Select value={data.llmConfig.model} onValueChange={handleModelChange}>
+            <Select
+              value={data.llmConfig.model}
+              onValueChange={handleModelChange}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
@@ -217,55 +155,46 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
           </div>
         )}
 
-        {/* API Key */}
+        {/* API Key Guidance */}
         {selectedProvider && (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <Label>API Key</Label>
+              <Label>API Access</Label>
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger>
                     <Info className="w-4 h-4 text-muted-foreground" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Your API key is stored securely and only used by your agent</p>
+                    <p>
+                      Renters will securely provide their own API keys during
+                      checkout.
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             </div>
-            <div className="relative">
-              <Input
-                type={showApiKey ? "text" : "password"}
-                placeholder={`Enter your ${selectedProvider.name} API key`}
-                value={data.llmConfig.apiKey}
-                onChange={(e) => handleApiKeyChange(e.target.value)}
-                className="pr-10"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="absolute right-0 top-0 h-full px-3"
-                onClick={() => setShowApiKey(!showApiKey)}
-              >
-                {showApiKey ? (
-                  <EyeOff className="w-4 h-4" />
-                ) : (
-                  <Eye className="w-4 h-4" />
-                )}
-              </Button>
+            <div className="p-4 bg-muted/60 rounded-lg text-sm text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">
+                No keys needed from you.
+              </p>
+              <p>
+                When someone rents your agent they’ll be prompted to supply a
+                valid {selectedProvider.name} API key so usage stays on their
+                account.
+              </p>
+              <p className="mt-2">
+                Share this link with renters if they need to generate a key:{" "}
+                <a
+                  href={selectedProvider.apiKeyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  {selectedProvider.apiKeyUrl.replace(/^https?:\/\//, "")}
+                </a>
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground">
-              Don't have an API key?{" "}
-              <a
-                href={selectedProvider.apiKeyUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary hover:underline"
-              >
-                Get one here
-              </a>
-            </p>
           </div>
         )}
 
@@ -273,7 +202,7 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
         {selectedProvider && (
           <div className="space-y-4">
             <Label>Advanced Settings</Label>
-            
+
             {/* Temperature */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -291,7 +220,8 @@ export function LLMStep({ data, onUpdate, onNext }: LLMStepProps) {
                 className="w-full"
               />
               <p className="text-xs text-muted-foreground">
-                Lower values make output more focused, higher values more creative
+                Lower values make output more focused, higher values more
+                creative
               </p>
             </div>
 

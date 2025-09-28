@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import HomeHeader from "@/components/home-header";
 import { DescriptionStep } from "@/components/create-steps/description-step";
 import { LLMStep } from "@/components/create-steps/llm-step";
@@ -40,7 +41,6 @@ const steps = [
 export interface LLMConfig {
   provider: string;
   model: string;
-  apiKey: string;
   temperature?: number;
   maxTokens?: number;
 }
@@ -73,7 +73,6 @@ export default function CreateAgentPage() {
     llmConfig: {
       provider: "",
       model: "",
-      apiKey: "",
       temperature: 0.7,
       maxTokens: 2000,
     },
@@ -84,12 +83,6 @@ export default function CreateAgentPage() {
   const handleNext = () => {
     if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
     }
   };
 
@@ -181,24 +174,27 @@ export default function CreateAgentPage() {
                 <CardContent className="p-6">
                   <div className="text-center space-y-4">
                     <div className="w-48 h-48 mx-auto bg-muted rounded-2xl flex items-center justify-center overflow-hidden">
-                      <img
+                      <Image
                         src="/images/agent-character.png"
                         alt="Agent Character"
+                        width={192}
+                        height={192}
                         className="w-full h-full object-cover"
+                        priority
                       />
                     </div>
                     <div className="p-4 bg-muted rounded-lg">
                       <p className="text-sm text-muted-foreground italic">
                         {currentStep === 1 &&
-                          "What job should I handle for you? Be as specific as you'd be with any new hire to set me up for success."}
+                          "What job should I handle for you? Be as specific as you’d be with any new hire to set me up for success."}
                         {currentStep === 2 &&
-                          "I need a brain to think with! Choose the AI model that will power my intelligence and provide your API key."}
+                          "I need a brain to think with! Choose the AI model that will power my intelligence—renters will bring their own API keys."}
                         {currentStep === 3 &&
-                          "I'm smart, but more context always helps! Help me understand your unique processes and requirements."}
+                          "I’m smart, but more context always helps! Help me understand your unique processes and requirements."}
                         {currentStep === 4 &&
                           "Just like you need the right tools for your job, so do I. Connect me to the apps you use daily so I can perform tasks for you."}
                         {currentStep === 5 &&
-                          "Ready to deploy! Let's review everything and get your agent live on the marketplace."}
+                          "Ready to deploy! Let’s review everything and get your agent live on the marketplace."}
                       </p>
                     </div>
                   </div>

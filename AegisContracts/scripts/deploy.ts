@@ -5,7 +5,7 @@ async function main() {
 
   const [deployer] = await ethers.getSigners();
   console.log("Deploying contracts with account:", deployer.address);
-  
+
   const balance = await ethers.provider.getBalance(deployer.address);
   console.log("Account balance:", ethers.formatEther(balance), "MATIC");
 
@@ -23,52 +23,45 @@ async function main() {
   const rentalContractAddress = await rentalContract.getAddress();
   console.log("RentalContract deployed to:", rentalContractAddress);
 
-  console.log("\nDeploying X402CreditContract...");
-  const pricePerCredit = ethers.parseEther("0.001");
-  const X402CreditContract = await ethers.getContractFactory("X402CreditContract");
-  const x402CreditContract = await X402CreditContract.deploy(pricePerCredit);
-  await x402CreditContract.waitForDeployment();
-  const x402Address = await x402CreditContract.getAddress();
-  console.log("X402CreditContract deployed to:", x402Address);
-  console.log("Price per credit:", ethers.formatEther(pricePerCredit), "MATIC");
-
   console.log("\n========================================");
   console.log("DEPLOYMENT COMPLETE");
   console.log("========================================");
   console.log("\nContract Addresses:");
   console.log("AgentNFT:           ", agentNFTAddress);
   console.log("RentalContract:     ", rentalContractAddress);
-  console.log("X402CreditContract: ", x402Address);
   console.log("\nNetwork:", (await ethers.provider.getNetwork()).name);
   console.log("Chain ID:", (await ethers.provider.getNetwork()).chainId);
-  
+
   const deployment = {
     network: (await ethers.provider.getNetwork()).name,
     chainId: Number((await ethers.provider.getNetwork()).chainId),
     contracts: {
       AgentNFT: agentNFTAddress,
       RentalContract: rentalContractAddress,
-      X402CreditContract: x402Address,
     },
     deployer: deployer.address,
     timestamp: new Date().toISOString(),
-    pricePerCredit: ethers.formatEther(pricePerCredit) + " MATIC"
+    notes: "Micropayments handled off-chain via x402 facilitator",
   };
 
   const fs = await import("fs");
   const deploymentPath = `./deployments/${deployment.network}-${deployment.chainId}.json`;
-  
+
   if (!fs.existsSync("./deployments")) {
     fs.mkdirSync("./deployments");
   }
-  
+
   fs.writeFileSync(deploymentPath, JSON.stringify(deployment, null, 2));
   console.log("\nDeployment info saved to:", deploymentPath);
-  
+
   console.log("\nVerification commands:");
   console.log("npx hardhat verify --network <network> " + agentNFTAddress);
-  console.log("npx hardhat verify --network <network> " + rentalContractAddress + " " + agentNFTAddress);
-  console.log("npx hardhat verify --network <network> " + x402Address + " " + pricePerCredit.toString());
+  console.log(
+    "npx hardhat verify --network <network> " +
+      rentalContractAddress +
+      " " +
+      agentNFTAddress
+  );
 }
 
 main().catch((error) => {

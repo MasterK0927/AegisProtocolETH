@@ -15,16 +15,26 @@ import {
   Share,
   Square,
   Timer,
+  Wallet,
   Zap,
 } from "lucide-react";
 
+import { ApiKeyModal } from "@/components/api-key-modal";
+import { CheckoutDrawer } from "@/components/payments/checkout-drawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useToast } from "@/hooks/use-toast";
+import {
+  normalizeCredentialKey,
+  useAgentCredentials,
+} from "@/hooks/use-agent-credentials";
+import { usePayments } from "@/hooks/use-payments";
 import { useWeb3 } from "@/hooks/use-web3";
 import { fetchAgent, type AgentData } from "@/lib/agents";
+import { getLLMProvider } from "@/lib/llms";
+import { getRequiredApiKeys } from "@/lib/real-tools";
 import { fetchActiveRental, type ActiveRental } from "@/lib/rentals";
 
 type Message = {
@@ -33,6 +43,13 @@ type Message = {
   sender: "user" | "agent";
   timestamp: Date;
   type?: "text" | "file" | "image";
+};
+
+type ToolRequirement = {
+  key: string;
+  provider: string;
+  tools: string[];
+  url: string;
 };
 
 function formatAddress(address?: string | null) {
@@ -63,9 +80,123 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
   const [sessionActive, setSessionActive] = useState(false);
   const [userIsRenter, setUserIsRenter] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const {
+    credentials,
+    isLoaded: credentialsLoaded,
+    isPersisted,
+    setCredentials: persistCredentials,
+    clearCredentials,
+  } = useAgentCredentials(tokenId);
+
+  const payments = usePayments({
+    renter: address ?? undefined,
+    agentId: Number.isNaN(tokenId) ? undefined : tokenId,
+    autoRefresh: Boolean(address),
+    pollIntervalMs: 20000,
+  });
+
+  const {
+    orders: paymentOrders,
+    isLoading: paymentsLoading,
+    createOrder: createPaymentOrder,
+    refresh: refreshPayments,
+  } = payments;
+
+  const llmConfig = useMemo(() => {
+    const aegis = agent?.metadata?.aegis as
+      | { llmConfig?: { provider?: string; model?: string } }
+      | undefined;
+    return aegis?.llmConfig;
+  }, [agent]);
+
+  const llmProvider = useMemo(
+    () => getLLMProvider(llmConfig?.provider ?? ""),
+    [llmConfig?.provider]
+  );
+
+  const toolRequirements = useMemo<ToolRequirement[]>(() => {
+    if (!agent) {
+      return [];
+    }
+
+    return getRequiredApiKeys(agent.tools).map((requirement) => ({
+      ...requirement,
+      key: normalizeCredentialKey(requirement.provider),
+    }));
+  }, [agent]);
+
+  const credentialsRequired =
+    Boolean(llmProvider) || toolRequirements.length > 0;
+
+  const credentialSummary = useMemo(() => {
+    if (!credentialsRequired) {
+      return {
+        ready: true,
+        missingProviders: [] as string[],
+        savedProviders: [] as string[],
+      };
+    }
+
+    if (!credentialsLoaded) {
+      const missingSet = new Set<string>();
+      if (llmProvider) {
+        missingSet.add(llmProvider.name);
+      }
+      toolRequirements.forEach((requirement) => {
+        missingSet.add(requirement.provider);
+      });
+
+      return {
+        ready: false,
+        missingProviders: Array.from(missingSet),
+        savedProviders: [] as string[],
+      };
+    }
+
+    const missingSet = new Set<string>();
+    const savedSet = new Set<string>();
+
+    let llmReady = true;
+    if (llmProvider) {
+      const matchesProvider = credentials.llm?.provider === llmProvider.id;
+      const hasKey = Boolean(credentials.llm?.apiKey?.trim());
+      llmReady = Boolean(matchesProvider && hasKey);
+      if (llmReady) {
+        savedSet.add(llmProvider.name);
+      } else {
+        missingSet.add(llmProvider.name);
+      }
+    }
+
+    toolRequirements.forEach((requirement) => {
+      const stored = credentials.tools?.[requirement.key]?.apiKey?.trim();
+      if (stored) {
+        savedSet.add(requirement.provider);
+      } else {
+        missingSet.add(requirement.provider);
+      }
+    });
+
+    return {
+      ready: llmReady && missingSet.size === 0,
+      missingProviders: Array.from(missingSet),
+      savedProviders: Array.from(savedSet),
+    };
+  }, [
+    credentials,
+    credentialsLoaded,
+    credentialsRequired,
+    llmProvider,
+    toolRequirements,
+  ]);
+
+  const credentialsReady = credentialSummary.ready;
 
   const refreshRental = useCallback(async () => {
     if (Number.isNaN(tokenId)) {
@@ -254,18 +385,21 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     return null;
   }, [address, rentalLoaded, sessionActive, userIsRenter]);
 
-  const canSendMessages = Boolean(address && sessionActive && userIsRenter);
+  const canSendMessages = Boolean(
+    address && sessionActive && userIsRenter && credentialsReady
+  );
 
   const handleSendMessage = useCallback(() => {
     if (!agent) {
       return;
     }
 
-    if (!inputValue.trim()) {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
       return;
     }
 
-    if (!canSendMessages) {
+    if (!address || !sessionActive || !userIsRenter) {
       toast({
         title: "No active rental",
         description:
@@ -275,9 +409,34 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
       return;
     }
 
+    if (!credentialsReady) {
+      if (!credentialsLoaded) {
+        toast({
+          title: "Loading credentials",
+          description:
+            "Please wait a moment while we prepare your stored API keys.",
+        });
+      } else {
+        toast({
+          title: "API keys required",
+          description:
+            credentialSummary.missingProviders.length > 0
+              ? `Provide API keys for: ${credentialSummary.missingProviders.join(
+                  ", "
+                )}.`
+              : "Provide the required API keys before chatting.",
+          variant: "destructive",
+        });
+      }
+      if (credentialsLoaded) {
+        setIsApiKeyModalOpen(true);
+      }
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue,
+      content: trimmed,
       sender: "user",
       timestamp: new Date(),
     };
@@ -298,7 +457,17 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
       setMessages((prev) => [...prev, agentMessage]);
       setIsTyping(false);
     }, 1500);
-  }, [agent, canSendMessages, inputValue, toast]);
+  }, [
+    address,
+    agent,
+    credentialSummary,
+    credentialsLoaded,
+    credentialsReady,
+    inputValue,
+    sessionActive,
+    toast,
+    userIsRenter,
+  ]);
 
   const handleKeyPress = (event: React.KeyboardEvent) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -391,264 +560,347 @@ export default function ChatPage({ params }: { params: { agent: string } }) {
     : "Connect Wallet";
 
   return (
-    <div className="h-screen bg-background flex flex-col">
-      <div className="border-b border-border bg-card">
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/marketplace">
-                <ArrowLeft className="w-4 h-4" />
-              </Link>
-            </Button>
+    <>
+      <div className="h-screen bg-background flex flex-col">
+        <div className="border-b border-border bg-card">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/marketplace">
+                  <ArrowLeft className="w-4 h-4" />
+                </Link>
+              </Button>
 
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Avatar className="w-10 h-10">
-                  {avatarIsImage ? (
-                    <AvatarImage src={agent.avatar} alt={agent.name} />
-                  ) : (
-                    <AvatarFallback className="text-lg">
-                      {agentAvatarLabel}
-                    </AvatarFallback>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <Avatar className="w-10 h-10">
+                    {avatarIsImage ? (
+                      <AvatarImage src={agent.avatar} alt={agent.name} />
+                    ) : (
+                      <AvatarFallback className="text-lg">
+                        {agentAvatarLabel}
+                      </AvatarFallback>
+                    )}
+                  </Avatar>
+                  {sessionActive && userIsRenter && (
+                    <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background" />
                   )}
-                </Avatar>
-                {sessionActive && userIsRenter && (
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-background" />
-                )}
-              </div>
+                </div>
 
-              <div>
-                <h1 className="font-semibold text-foreground">{agent.name}</h1>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <span className={statusDotClass}>●</span>
-                  <span>{sessionStatus}</span>
-                  {sessionActive && timeRemaining && (
-                    <>
-                      <span>•</span>
-                      <Clock className="w-3 h-3" />
-                      <span>{timeRemaining} remaining</span>
-                    </>
-                  )}
+                <div>
+                  <h1 className="font-semibold text-foreground">
+                    {agent.name}
+                  </h1>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className={statusDotClass}>●</span>
+                    <span>{sessionStatus}</span>
+                    {sessionActive && timeRemaining && (
+                      <>
+                        <span>•</span>
+                        <Clock className="w-3 h-3" />
+                        <span>{timeRemaining} remaining</span>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-2">
-            <div className="flex gap-1">
-              {displayedCapabilities.length > 0 ? (
-                displayedCapabilities.map((capability) => (
-                  <Badge
-                    key={capability}
-                    variant="secondary"
-                    className="text-xs"
-                  >
-                    {capability}
+            <div className="flex items-center gap-2">
+              <div className="flex gap-1">
+                {displayedCapabilities.length > 0 ? (
+                  displayedCapabilities.map((capability) => (
+                    <Badge
+                      key={capability}
+                      variant="secondary"
+                      className="text-xs"
+                    >
+                      {capability}
+                    </Badge>
+                  ))
+                ) : (
+                  <Badge variant="outline" className="text-xs">
+                    No capabilities listed
                   </Badge>
-                ))
-              ) : (
-                <Badge variant="outline" className="text-xs">
-                  No capabilities listed
-                </Badge>
-              )}
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={walletButtonDisabled && !address}
-              onClick={address ? disconnect : handleConnect}
-            >
-              {walletButtonLabel}
-            </Button>
-
-            <Button variant="ghost" size="sm">
-              <Share className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm">
-              <Download className="w-4 h-4" />
-            </Button>
-            <Button variant="ghost" size="sm">
-              <MoreVertical className="w-4 h-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {banner && (
-        <div className="px-6 py-3">
-          <div className="bg-amber-500/10 border border-amber-500/40 text-amber-600 px-4 py-3 rounded-lg text-sm">
-            {banner.message}
-          </div>
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-        {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${
-              message.sender === "user" ? "justify-end" : "justify-start"
-            }`}
-          >
-            <div
-              className={`flex gap-3 max-w-2xl ${
-                message.sender === "user" ? "flex-row-reverse" : "flex-row"
-              }`}
-            >
-              <Avatar className="w-8 h-8 flex-shrink-0">
-                {message.sender === "user" ? (
-                  <AvatarFallback className="text-sm">
-                    {userAvatarLabel}
-                  </AvatarFallback>
-                ) : avatarIsImage ? (
-                  <AvatarImage src={agent.avatar} alt={agent.name} />
-                ) : (
-                  <AvatarFallback className="text-sm">
-                    {agentAvatarLabel}
-                  </AvatarFallback>
                 )}
-              </Avatar>
+              </div>
 
-              <div
-                className={`space-y-1 ${
-                  message.sender === "user" ? "items-end" : "items-start"
-                } flex flex-col`}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={walletButtonDisabled && !address}
+                onClick={address ? disconnect : handleConnect}
               >
-                <div
-                  className={`px-4 py-3 rounded-2xl ${
-                    message.sender === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed">{message.content}</p>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {formatTime(message.timestamp)}
-                </span>
-              </div>
+                {walletButtonLabel}
+              </Button>
+
+              <Button variant="ghost" size="sm">
+                <Share className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="sm">
+                <Download className="w-4 h-4" />
+              </Button>
+              <Button variant="ghost" size="sm">
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsCheckoutOpen(true)}
+                disabled={!agent}
+              >
+                <Wallet className="w-4 h-4 mr-2" />
+                Checkout
+              </Button>
             </div>
           </div>
-        ))}
+        </div>
 
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="flex gap-3 max-w-2xl">
-              <Avatar className="w-8 h-8">
-                {avatarIsImage ? (
-                  <AvatarImage src={agent.avatar} alt={agent.name} />
-                ) : (
-                  <AvatarFallback className="text-sm">
-                    {agentAvatarLabel}
-                  </AvatarFallback>
-                )}
-              </Avatar>
-              <div className="bg-muted px-4 py-3 rounded-2xl">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                  <div
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: "0.1s" }}
-                  />
-                  <div
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: "0.2s" }}
-                  />
-                </div>
-              </div>
+        {banner && (
+          <div className="px-6 py-3">
+            <div className="bg-amber-500/10 border border-amber-500/40 text-amber-600 px-4 py-3 rounded-lg text-sm">
+              {banner.message}
             </div>
           </div>
         )}
 
-        <div ref={messagesEndRef} />
-      </div>
-
-      <div className="border-t border-border bg-card px-6 py-4">
-        <div className="flex items-end gap-3">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-shrink-0"
-            disabled={!canSendMessages}
-          >
-            <Paperclip className="w-4 h-4" />
-          </Button>
-
-          <div className="flex-1 relative">
-            <Input
-              ref={inputRef}
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder={`Message ${agent.name}...`}
-              className="pr-12 py-3 text-sm resize-none min-h-[44px]"
-              disabled={!canSendMessages}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="absolute right-2 top-1/2 transform -translate-y-1/2"
-              onClick={() => setIsRecording((prev) => !prev)}
-              disabled={!canSendMessages}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex ${
+                message.sender === "user" ? "justify-end" : "justify-start"
+              }`}
             >
-              {isRecording ? (
-                <Square className="w-4 h-4 text-red-500" />
-              ) : (
-                <Mic className="w-4 h-4" />
-              )}
-            </Button>
-          </div>
+              <div
+                className={`flex gap-3 max-w-2xl ${
+                  message.sender === "user" ? "flex-row-reverse" : "flex-row"
+                }`}
+              >
+                <Avatar className="w-8 h-8 flex-shrink-0">
+                  {message.sender === "user" ? (
+                    <AvatarFallback className="text-sm">
+                      {userAvatarLabel}
+                    </AvatarFallback>
+                  ) : avatarIsImage ? (
+                    <AvatarImage src={agent.avatar} alt={agent.name} />
+                  ) : (
+                    <AvatarFallback className="text-sm">
+                      {agentAvatarLabel}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
 
-          <Button
-            onClick={handleSendMessage}
-            disabled={!canSendMessages || !inputValue.trim()}
-            size="sm"
-            className="flex-shrink-0"
-          >
-            <Send className="w-4 h-4" />
-          </Button>
+                <div
+                  className={`space-y-1 ${
+                    message.sender === "user" ? "items-end" : "items-start"
+                  } flex flex-col`}
+                >
+                  <div
+                    className={`px-4 py-3 rounded-2xl ${
+                      message.sender === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    <p className="text-sm leading-relaxed">{message.content}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {formatTime(message.timestamp)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {isTyping && (
+            <div className="flex justify-start">
+              <div className="flex gap-3 max-w-2xl">
+                <Avatar className="w-8 h-8">
+                  {avatarIsImage ? (
+                    <AvatarImage src={agent.avatar} alt={agent.name} />
+                  ) : (
+                    <AvatarFallback className="text-sm">
+                      {agentAvatarLabel}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
+                <div className="bg-muted px-4 py-3 rounded-2xl">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
+                    <div
+                      className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
+                      style={{ animationDelay: "0.1s" }}
+                    />
+                    <div
+                      className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
+                      style={{ animationDelay: "0.2s" }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
         </div>
 
-        <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1">
-              <Zap className="w-3 h-3" />
-              <span>Powered by blockchain</span>
+        <div className="border-t border-border bg-card px-6 py-4">
+          {credentialsRequired && (
+            <div className="mb-4 flex flex-col gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                {!credentialsLoaded
+                  ? "Loading your saved API keys…"
+                  : credentialsReady
+                  ? `All required keys are ready${
+                      credentialSummary.savedProviders.length > 0
+                        ? ` (${credentialSummary.savedProviders.join(", ")})`
+                        : ""
+                    }.`
+                  : credentialSummary.missingProviders.length > 0
+                  ? `Provide API keys for: ${credentialSummary.missingProviders.join(
+                      ", "
+                    )}.`
+                  : "Provide the required API keys to enable this agent."}
+              </div>
+              <div className="flex items-center gap-2">
+                {credentialsLoaded && isPersisted && (
+                  <Badge variant="outline" className="text-[10px] uppercase">
+                    Remembered
+                  </Badge>
+                )}
+                {credentialsLoaded &&
+                  credentialSummary.savedProviders.length > 0 && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] uppercase"
+                    >
+                      {credentialSummary.savedProviders.length} saved
+                    </Badge>
+                  )}
+                <Button
+                  variant={credentialsReady ? "outline" : "default"}
+                  size="sm"
+                  onClick={() => setIsApiKeyModalOpen(true)}
+                  disabled={!credentialsLoaded}
+                >
+                  Manage API keys
+                </Button>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <Timer className="w-3 h-3" />
-              <span>
-                Session{" "}
-                {sessionActive && timeRemaining
-                  ? `expires in ${timeRemaining}`
-                  : "not active"}
-              </span>
+          )}
+          <div className="flex items-end gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="flex-shrink-0"
+              disabled={!canSendMessages}
+            >
+              <Paperclip className="w-4 h-4" />
+            </Button>
+
+            <div className="flex-1 relative">
+              <Input
+                ref={inputRef}
+                value={inputValue}
+                onChange={(event) => setInputValue(event.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder={`Message ${agent.name}...`}
+                className="pr-12 py-3 text-sm resize-none min-h-[44px]"
+                disabled={!canSendMessages}
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-1/2 transform -translate-y-1/2"
+                onClick={() => setIsRecording((prev) => !prev)}
+                disabled={!canSendMessages}
+              >
+                {isRecording ? (
+                  <Square className="w-4 h-4 text-red-500" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
+              </Button>
             </div>
+
+            <Button
+              onClick={handleSendMessage}
+              disabled={!canSendMessages || !inputValue.trim()}
+              size="sm"
+              className="flex-shrink-0"
+            >
+              <Send className="w-4 h-4" />
+            </Button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs h-6 px-2"
-              onClick={handleExtendTime}
-              disabled={!canSendMessages}
-            >
-              Extend Time
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs h-6 px-2"
-              onClick={handleEndSession}
-              disabled={!canSendMessages}
-            >
-              End Session
-            </Button>
+          <div className="flex items-center justify-between mt-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1">
+                <Zap className="w-3 h-3" />
+                <span>Powered by blockchain</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Timer className="w-3 h-3" />
+                <span>
+                  Session{" "}
+                  {sessionActive && timeRemaining
+                    ? `expires in ${timeRemaining}`
+                    : "not active"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={handleExtendTime}
+                disabled={!canSendMessages}
+              >
+                Extend Time
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-xs h-6 px-2"
+                onClick={handleEndSession}
+                disabled={!canSendMessages}
+              >
+                End Session
+              </Button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+      {agent && (
+        <ApiKeyModal
+          open={isApiKeyModalOpen}
+          onOpenChange={setIsApiKeyModalOpen}
+          agent={agent}
+          llmConfig={llmConfig}
+          llmProvider={llmProvider}
+          toolRequirements={toolRequirements}
+          credentials={credentials}
+          credentialsLoaded={credentialsLoaded}
+          isPersisted={isPersisted}
+          onSave={(payload, options) =>
+            persistCredentials(payload, { persist: options.persist })
+          }
+          onClear={clearCredentials}
+        />
+      )}
+      <CheckoutDrawer
+        agent={agent}
+        renterAddress={address ?? null}
+        orders={paymentOrders}
+        isLoadingOrders={paymentsLoading}
+        open={isCheckoutOpen}
+        onOpenChange={setIsCheckoutOpen}
+        onCreateOrder={createPaymentOrder}
+        onRefreshOrders={() => refreshPayments()}
+      />
+    </>
   );
 }

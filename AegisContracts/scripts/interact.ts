@@ -113,32 +113,6 @@ export async function rentAgent(tokenId: number, durationInSeconds: number) {
   );
 }
 
-// Purchase credits
-export async function purchaseCredits(amountInMatic: string) {
-  const [signer] = await ethers.getSigners();
-  const network = await ethers.provider.getNetwork();
-  const deployment = loadDeployment(`${network.name}-${network.chainId}`);
-
-  const x402Contract = await ethers.getContractAt(
-    "X402CreditContract",
-    deployment.contracts.X402CreditContract
-  );
-
-  const payment = ethers.parseEther(amountInMatic);
-  const pricePerCredit = await x402Contract.pricePerCredit();
-  const creditsToReceive = payment / pricePerCredit;
-
-  console.log(`Purchasing credits for ${amountInMatic} MATIC...`);
-  console.log(`You will receive: ${creditsToReceive} credits`);
-
-  const tx = await x402Contract.purchaseCredits({ value: payment });
-  await tx.wait();
-
-  const balance = await x402Contract.creditBalances(signer.address);
-  console.log(`✅ Credits purchased!`);
-  console.log(`   Your balance: ${balance} credits`);
-}
-
 // Check rental status
 export async function checkRentalStatus(tokenId: number, userAddress?: string) {
   const [signer] = await ethers.getSigners();
@@ -166,29 +140,6 @@ export async function checkRentalStatus(tokenId: number, userAddress?: string) {
   }
 }
 
-// Check credit balance
-export async function checkCreditBalance(userAddress?: string) {
-  const [signer] = await ethers.getSigners();
-  const network = await ethers.provider.getNetwork();
-  const deployment = loadDeployment(`${network.name}-${network.chainId}`);
-
-  const x402Contract = await ethers.getContractAt(
-    "X402CreditContract",
-    deployment.contracts.X402CreditContract
-  );
-
-  const address = userAddress || signer.address;
-  const balance = await x402Contract.creditBalances(address);
-  const pricePerCredit = await x402Contract.pricePerCredit();
-
-  console.log(`\n💳 Credit Balance:`);
-  console.log(`   User: ${address}`);
-  console.log(`   Balance: ${balance} credits`);
-  console.log(
-    `   Value: ${ethers.formatEther(balance * pricePerCredit)} MATIC`
-  );
-}
-
 // Main interactive CLI
 async function main() {
   const args = process.argv.slice(2);
@@ -205,15 +156,16 @@ Commands:
   mint <token_uri> [account]             - Mint a new Agent NFT (optionally specify signer index or address)
   set-price <token_id> <price_per_sec>   - Set rental price (in MATIC/second)
   rent <token_id> <duration_seconds>     - Rent an agent
-  purchase-credits <amount_matic>        - Purchase X402 credits
   check-rental <token_id> [user_address] - Check rental status
-  check-credits [user_address]           - Check credit balance
 
 Examples:
   npx hardhat run scripts/interact.ts --network localhost -- mint 0x123... ipfs://Qm...
   npx hardhat run scripts/interact.ts --network localhost -- set-price 0 0.0001
   npx hardhat run scripts/interact.ts --network localhost -- rent 0 3600
-  npx hardhat run scripts/interact.ts --network localhost -- purchase-credits 1.0
+
+Notes:
+  • X402 credit purchases are now handled off-chain via the facilitator gateway.
+    Use the new REST API instead of these scripts for credit management.
     `);
     return;
   }
@@ -229,14 +181,8 @@ Examples:
       case "rent":
         await rentAgent(parseInt(args[1]), parseInt(args[2]));
         break;
-      case "purchase-credits":
-        await purchaseCredits(args[1]);
-        break;
       case "check-rental":
         await checkRentalStatus(parseInt(args[1]), args[2]);
-        break;
-      case "check-credits":
-        await checkCreditBalance(args[1]);
         break;
       default:
         console.error(`Unknown command: ${command}`);
