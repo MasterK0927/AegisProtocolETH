@@ -1,0 +1,11 @@
+{
+  "network": "amoy",
+  "chainId": 80002,
+  "contracts": {
+    "AgentNFT": "0x8e8dF9AFf991245669bc1Eb9d91872aBdF341CF0",
+    "RentalContract": "0xaC1b8bB8c415B1E55257B2bdf3E997484d25Cc93"
+  },
+  "deployer": "0xee8bC1f3B1c80C23d51Ff1C238361dd42F37D2B3",
+  "timestamp": "2025-09-28T05:38:08.957Z",
+  "notes": "Micropayments handled off-chain via x402 facilitator"
+}

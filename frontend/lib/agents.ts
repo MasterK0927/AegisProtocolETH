@@ -323,7 +323,12 @@ export async function fetchAgents(
   const rentalContract = await getContract(chainId, "RentalContract", provider);
 
   const eventFilter = agentContract.filters.AgentMinted();
-  const events = await agentContract.queryFilter(eventFilter, 0n, "latest");
+
+  // It's inefficient to query all events from the genesis block.
+  // This is a placeholder for the block number when the contract was deployed.
+  // For a production app, this should be retrieved from the deployment artifacts.
+  const deployBlock = 0; // Replace with actual deployment block number if known
+  const events = await agentContract.queryFilter(eventFilter, deployBlock);
 
   const agents = await Promise.all(
     events.map(async (event) => {

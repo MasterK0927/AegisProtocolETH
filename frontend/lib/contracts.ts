@@ -22,6 +22,10 @@ const deploymentData = deployment31337 as DeploymentRecord;
 
 const DEPLOYMENTS: Record<number, Record<ContractName, string>> = {
   [deploymentData.chainId]: deploymentData.contracts,
+  80002: {
+    AgentNFT: "0x8e8dF9AFf991245669bc1Eb9d91872aBdF341CF0",
+    RentalContract: "0xaC1b8bB8c415B1E55257B2bdf3E997484d25Cc93",
+  },
 };
 
 export const SUPPORTED_CHAIN_IDS = Object.keys(DEPLOYMENTS).map((id) =>
